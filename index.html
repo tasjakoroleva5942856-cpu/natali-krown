@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Workshop AI Content Studio — Наталья Королева</title>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;700;900&family=Mulish:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+--cream:#FAF5EF;
+--choco:#2C1A14;
+--rose:#C9968A;
+--rose-light:#F0DDD8;
+--rose-dark:#8B5E55;
+--rose-mid:#D9AFA6;
+--white:#FFFFFF;
+--gray:#7A7068;
+--border:#E8DDD8;
+}
+html{scroll-behavior:smooth}
+body{font-family:'Mulish',sans-serif;background:var(--cream);color:var(--choco);line-height:1.7;font-size:16px}
+h1,h2,h3,h4,h5{font-family:'Unbounded',sans-serif;line-height:1.2}
+a{text-decoration:none;color:inherit}
+img{max-width:100%;display:block}
+
+/* NAV */
+nav{position:sticky;top:0;z-index:100;background:var(--choco);padding:14px 24px;display:flex;gap:24px;overflow-x:auto;justify-content:center}
+nav a{font-family:'Unbounded',sans-serif;font-size:10px;letter-spacing:0.08em;color:#C4B8AF;white-space:nowrap;transition:color 0.2s;text-transform:uppercase}
+nav a:hover{color:var(--rose)}
+
+/* HERO */
+.hero{background:var(--choco);color:var(--cream);padding:60px 24px 0}
+.hero-inner{max-width:1000px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:end}
+.hero-tag{display:inline-block;background:var(--rose);color:var(--white);font-family:'Unbounded',sans-serif;font-size:10px;letter-spacing:0.1em;padding:6px 16px;border-radius:40px;margin-bottom:24px;text-transform:uppercase}
+.hero h1{font-size:clamp(24px,3.5vw,42px);font-weight:900;margin-bottom:20px}
+.hero h1 span{color:var(--rose)}
+.hero-sub{font-size:16px;color:#C4B8AF;margin-bottom:32px;line-height:1.7}
+.hero-price{margin-bottom:32px}
+.price-main{font-family:'Unbounded',sans-serif;font-size:clamp(36px,5vw,52px);font-weight:900;color:var(--rose)}
+.price-note{font-size:13px;color:#C4B8AF;margin-top:4px}
+.btn{display:inline-block;background:var(--rose);color:var(--white);font-family:'Unbounded',sans-serif;font-size:13px;font-weight:700;padding:16px 36px;border-radius:50px;transition:all 0.2s;border:none;cursor:pointer;letter-spacing:0.02em}
+.btn:hover{background:var(--rose-dark);transform:translateY(-2px)}
+.btn-outline{background:transparent;border:2px solid var(--rose);color:var(--rose)}
+.btn-outline:hover{background:var(--rose);color:var(--white)}
+.hero-photo{align-self:end}
+.hero-photo img{width:100%;max-width:420px;border-radius:20px 20px 0 0;object-fit:cover;object-position:top}
+
+/* SECTIONS */
+.section{padding:72px 24px;max-width:960px;margin:0 auto}
+.section-tag{font-family:'Unbounded',sans-serif;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--rose);margin-bottom:12px}
+.section h2{font-size:clamp(22px,3vw,36px);font-weight:900;margin-bottom:32px}
+.divider{height:1px;background:var(--border);max-width:960px;margin:0 auto}
+
+/* УЗНАЁШЬ СЕБЯ */
+.situations{display:flex;flex-direction:column;gap:12px;margin-top:8px}
+.situation{display:flex;gap:16px;align-items:flex-start;background:var(--white);border:1px solid var(--border);border-radius:14px;padding:20px 24px}
+.sit-num{flex-shrink:0;width:36px;height:36px;background:var(--rose-light);border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:'Unbounded',sans-serif;font-size:12px;font-weight:700;color:var(--rose-dark)}
+.situation p{font-size:15px;color:#4A3A34;line-height:1.6}
+
+/* УЖЕ ПРОБОВАЛА */
+.tried-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:32px}
+.tried-item{background:var(--white);border:1px solid var(--border);border-radius:14px;padding:20px;display:flex;gap:12px;align-items:flex-start}
+.tried-x{color:var(--rose);font-size:20px;font-weight:700;line-height:1;flex-shrink:0}
+.tried-item p{font-size:14px;color:var(--gray);line-height:1.5}
+.result-bad{background:var(--choco);color:var(--cream);border-radius:16px;padding:28px 32px;text-align:center}
+.result-bad p{font-size:17px;line-height:1.7;color:#C4B8AF}
+.result-bad strong{color:var(--rose)}
+
+/* ДЛЯ КОГО */
+.forwhom-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}
+.forwhom-card{background:var(--white);border:1px solid var(--border);border-radius:16px;padding:28px 24px}
+.forwhom-card .num{font-family:'Unbounded',sans-serif;font-size:28px;font-weight:900;color:var(--rose-light);margin-bottom:12px}
+.forwhom-card h4{font-family:'Unbounded',sans-serif;font-size:13px;font-weight:700;margin-bottom:8px}
+.forwhom-card p{font-size:14px;color:var(--gray);line-height:1.6}
+
+/* РЕШЕНИЕ */
+.solution-block{background:var(--choco);color:var(--cream);border-radius:20px;padding:48px 40px;margin-bottom:0}
+.solution-block h3{font-family:'Unbounded',sans-serif;font-size:clamp(18px,2.5vw,28px);font-weight:900;margin-bottom:16px}
+.solution-block p{color:#C4B8AF;font-size:16px;line-height:1.8}
+.solution-block p strong{color:var(--rose)}
+
+/* ПРОГРАММА */
+.lessons{display:flex;flex-direction:column;gap:0}
+.lesson{display:grid;grid-template-columns:60px 1fr;gap:24px;padding:28px 0;border-bottom:1px solid var(--border);align-items:start}
+.lesson:last-child{border-bottom:none}
+.lesson-num{width:52px;height:52px;background:var(--choco);color:var(--cream);border-radius:14px;display:flex;align-items:center;justify-content:center;font-family:'Unbounded',sans-serif;font-size:18px;font-weight:900}
+.lesson h4{font-family:'Unbounded',sans-serif;font-size:14px;font-weight:700;margin-bottom:6px}
+.lesson-tag{display:inline-block;background:var(--rose-light);color:var(--rose-dark);font-size:11px;font-family:'Unbounded',sans-serif;padding:3px 10px;border-radius:20px;margin-bottom:8px}
+.lesson p{font-size:14px;color:var(--gray);line-height:1.6}
+
+/* ЧТО ПОЛУЧИШЬ */
+.results-list{display:flex;flex-direction:column;gap:12px}
+.result-item{display:flex;gap:16px;align-items:flex-start;padding:20px 24px;background:var(--white);border:1px solid var(--border);border-radius:14px}
+.result-check{width:32px;height:32px;background:var(--choco);border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--rose);font-size:14px;font-weight:700}
+.result-item p{font-size:15px;color:#4A3A34;line-height:1.6}
+
+/* БОНУС */
+.bonus-wrap{background:var(--choco);border-radius:20px;padding:48px 40px;color:var(--cream)}
+.bonus-badge{display:inline-block;background:var(--rose);color:var(--white);font-family:'Unbounded',sans-serif;font-size:10px;letter-spacing:0.1em;padding:5px 14px;border-radius:40px;margin-bottom:20px;text-transform:uppercase}
+.bonus-wrap h3{font-family:'Unbounded',sans-serif;font-size:clamp(18px,2.5vw,26px);font-weight:900;margin-bottom:16px}
+.bonus-wrap p{color:#C4B8AF;font-size:15px;line-height:1.7;margin-bottom:20px}
+.bonus-items{display:flex;flex-direction:column;gap:10px}
+.bonus-item{display:flex;gap:12px;font-size:14px;color:#C4B8AF;align-items:flex-start}
+.bonus-item::before{content:'→';color:var(--rose);flex-shrink:0;margin-top:2px}
+
+/* ДЕМО */
+.demo-wrap{background:var(--rose-light);border-radius:20px;padding:48px 40px;text-align:center}
+.demo-wrap h3{font-family:'Unbounded',sans-serif;font-size:clamp(18px,2.5vw,26px);font-weight:900;margin-bottom:12px}
+.demo-wrap p{font-size:15px;color:var(--gray);margin-bottom:28px;max-width:480px;margin-left:auto;margin-right:auto}
+
+/* ОБО МНЕ */
+.about-grid{display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:start}
+.about-photo img{width:100%;border-radius:20px;object-fit:cover}
+.about-text .name{font-family:'Unbounded',sans-serif;font-size:22px;font-weight:900;margin-bottom:4px}
+.about-text .title{font-size:14px;color:var(--rose);font-weight:600;margin-bottom:20px}
+.about-text p{font-size:15px;color:#4A3A34;line-height:1.8;margin-bottom:12px}
+.about-facts{display:flex;flex-direction:column;gap:8px;margin-top:20px}
+.fact{display:flex;gap:10px;font-size:14px;color:var(--gray)}
+.fact::before{content:'✦';color:var(--rose);flex-shrink:0}
+
+/* ТАРИФ */
+.tarif-section{background:var(--choco);padding:72px 24px}
+.tarif-inner{max-width:680px;margin:0 auto;text-align:center;color:var(--cream)}
+.tarif-inner .section-tag{color:var(--rose)}
+.tarif-inner h2{color:var(--cream);margin-bottom:40px}
+.tarif-box{background:rgba(255,255,255,0.05);border:1px solid rgba(201,150,138,0.3);border-radius:20px;padding:40px;text-align:left}
+.tarif-price{font-family:'Unbounded',sans-serif;font-size:clamp(40px,6vw,60px);font-weight:900;color:var(--rose);margin-bottom:4px}
+.tarif-price-note{font-size:13px;color:#C4B8AF;margin-bottom:32px}
+.tarif-includes{list-style:none;display:flex;flex-direction:column;gap:12px;margin-bottom:36px}
+.tarif-includes li{display:flex;gap:12px;font-size:15px;color:#C4B8AF;align-items:flex-start}
+.tarif-includes li::before{content:'✓';color:var(--rose);font-weight:700;flex-shrink:0;margin-top:2px}
+.tarif-cta{text-align:center}
+
+/* FAQ */
+.faq{display:flex;flex-direction:column;gap:0}
+.faq-item{border-bottom:1px solid var(--border);padding:20px 0;cursor:pointer}
+.faq-q{display:flex;justify-content:space-between;align-items:center;gap:16px}
+.faq-q h4{font-family:'Unbounded',sans-serif;font-size:13px;font-weight:700;line-height:1.4}
+.faq-arrow{color:var(--rose);font-size:20px;flex-shrink:0;transition:transform 0.2s}
+.faq-a{font-size:14px;color:var(--gray);line-height:1.7;max-height:0;overflow:hidden;transition:max-height 0.3s,padding 0.2s}
+.faq-item.open .faq-arrow{transform:rotate(45deg)}
+.faq-item.open .faq-a{max-height:200px;padding-top:12px}
+
+/* FOOTER */
+footer{background:var(--choco);color:#C4B8AF;padding:40px 24px;text-align:center}
+footer p{font-size:13px;margin-bottom:8px}
+footer a{color:var(--rose)}
+
+/* MOBILE */
+@media(max-width:680px){
+.hero-inner{grid-template-columns:1fr}
+.hero-photo{display:none}
+.about-grid{grid-template-columns:1fr}
+.about-photo{max-width:280px}
+nav{justify-content:flex-start}
+.solution-block,.bonus-wrap{padding:32px 24px}
+.tarif-box{padding:28px 20px}
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <a href="#uznayosh">Узнаёшь себя?</a>
+  <a href="#forwhom">Для кого</a>
+  <a href="#programma">Программа</a>
+  <a href="#bonus">Бонус</a>
+  <a href="#about">Обо мне</a>
+  <a href="#tarif">Стоимость</a>
+  <a href="#faq">FAQ</a>
+</nav>
+
+<section class="hero">
+  <div class="hero-inner">
+    <div class="hero-content">
+      <div class="hero-tag">Workshop · AI Content Studio</div>
+      <h1>Твой блог начнёт приносить заявки — <span>а не просто лайки</span></h1>
+      <p class="hero-sub">За один вечер собери личную команду ИИ-сотрудников которые знают твою аудиторию, пишут в твоём голосе и ведут контент по стратегии</p>
+      <div class="hero-price">
+        <div class="price-main">4 950 ₽</div>
+        <div class="price-note">Workshop + месяц в закрытом клубе Реалити</div>
+      </div>
+      <a href="#tarif" class="btn">Хочу на Workshop</a>
+    </div>
+    <div class="hero-photo">
+      <img src="natali_photo.jpg" alt="Наталья Королева">
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<section class="section" id="uznayosh">
+  <div class="section-tag">Узнаёшь себя?</div>
+  <h2>Посты есть. Заявок нет.</h2>
+  <div class="situations">
+    <div class="situation">
+      <div class="sit-num">1</div>
+      <p>Ведёшь блог регулярно. Пишешь посты. Но лайки без комментариев, без вопросов, без «а как это сделать?». Как будто люди прочитали и забыли через 3 секунды.</p>
+    </div>
+    <div class="situation">
+      <div class="sit-num">2</div>
+      <p>Садишься писать пост — и первые 20 минут сидишь над чистым листом. Не знаешь с чего начать. Каждый раз с нуля. Это выматывает.</p>
+    </div>
+    <div class="situation">
+      <div class="sit-num">3</div>
+      <p>Пробовала ИИ — получила что-то правильное, структурированное и совершенно не твоё. Начала переписывать — потратила столько же времени сколько без него.</p>
+    </div>
+    <div class="situation">
+      <div class="sit-num">4</div>
+      <p>Заявки приходят через личные рекомендации. Но из блога — нет. Люди подписаны, читают — но не покупают.</p>
+    </div>
+    <div class="situation">
+      <div class="sit-num">5</div>
+      <p>Постепенно выгораешь. Публикуешь реже. Бросаешь на пару недель. Потом возвращаешься с чувством вины и начинаешь сначала.</p>
+    </div>
+  </div>
+</section>
+
+<div style="background:var(--cream);padding:0 24px 72px">
+  <div style="max-width:960px;margin:0 auto">
+    <div class="result-bad">
+      <p>Дело не в тебе. И не в том что ты плохо пишешь.<br><strong>Дело в отсутствии системы которая ведёт аудиторию к покупке.</strong><br>Посты есть — но они не связаны между собой. Аудитория не прогревается. Нет пути от поста к заявке.</p>
+    </div>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<section class="section">
+  <div class="section-tag">Уже пробовала</div>
+  <h2>И это не помогло</h2>
+  <div class="tried-grid">
+    <div class="tried-item"><div class="tried-x">✕</div><p>Писала посты регулярно — реакций всё равно мало</p></div>
+    <div class="tried-item"><div class="tried-x">✕</div><p>Пробовала ИИ — получала шаблонные тексты не в твоём голосе</p></div>
+    <div class="tried-item"><div class="tried-x">✕</div><p>Смотрела курсы по контенту — знания есть, система не выстроена</p></div>
+    <div class="tried-item"><div class="tried-x">✕</div><p>Делала сторис 24/7 — выгорала, бросала, начинала снова</p></div>
+    <div class="tried-item"><div class="tried-x">✕</div><p>Давала скидки — покупали разово, не возвращались</p></div>
+    <div class="tried-item"><div class="tried-x">✕</div><p>Нанимала копирайтера — тексты не звучали как ты</p></div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<section class="section" id="forwhom">
+  <div class="section-tag">Для кого</div>
+  <h2>Тебе подойдёт если</h2>
+  <div class="forwhom-grid">
+    <div class="forwhom-card">
+      <div class="num">01</div>
+      <h4>Эксперт или фрилансер</h4>
+      <p>Ведёшь соцсети самостоятельно и хочешь чтобы контент приносил заявки а не только охваты</p>
+    </div>
+    <div class="forwhom-card">
+      <div class="num">02</div>
+      <h4>Устала от хаоса</h4>
+      <p>Каждую неделю думаешь что публиковать. Темы берёшь из головы. Хочешь систему а не вечный стресс</p>
+    </div>
+    <div class="forwhom-card">
+      <div class="num">03</div>
+      <h4>Пробовала ИИ — не получилось</h4>
+      <p>Первый результат был плохим и ты решила что это не для тебя. Покажу как это работает правильно</p>
+    </div>
+    <div class="forwhom-card">
+      <div class="num">04</div>
+      <h4>Боишься потерять голос</h4>
+      <p>Страшно что контент с ИИ будет шаблонным. Покажу как ИИ усиливает тебя а не заменяет</p>
+    </div>
+    <div class="forwhom-card">
+      <div class="num">05</div>
+      <h4>Хочешь масштабироваться</h4>
+      <p>Есть лимит времени и сил. Хочешь чтобы контент работал на тебя пока ты занимаешься жизнью</p>
+    </div>
+    <div class="forwhom-card">
+      <div class="num">06</div>
+      <h4>Не технарь</h4>
+      <p>Боишься что это сложно и нужны технические знания. Не нужны. Control C — Control V. Всё.</p>
+    </div>
+  </div>
+</section>
+
+<div style="background:var(--cream);padding:0 24px 72px">
+  <div style="max-width:960px;margin:0 auto">
+    <div class="solution-block">
+      <h3>И вот что я тебе покажу на Workshop</h3>
+      <p>AI Content Studio — это <strong>четыре ИИ-ассистента</strong> которых ты настраиваешь один раз в своём Claude. Один знает твою аудиторию. Второй пишет в твоём голосе. Третий строит контент по лестнице осознанности клиента. Четвёртый готовит план на месяц.<br><br>Ты один раз настраиваешь — и система работает постоянно. <strong>Без объяснений каждый раз. Без потери голоса. Без хаоса.</strong></p>
+    </div>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<section class="section" id="programma">
+  <div class="section-tag">Программа</div>
+  <h2>4 урока — 4 ИИ-сотрудника</h2>
+  <div class="lessons">
+    <div class="lesson">
+      <div class="lesson-num">1</div>
+      <div>
+        <div class="lesson-tag">ИИ-маркетолог</div>
+        <h4>Анализ аудитории и стратегия</h4>
+        <p>Настраиваешь ассистента который знает кто твой клиент, что его останавливает от покупки и какими словами он думает. Контент перестаёт уходить в пустоту.</p>
+      </div>
+    </div>
+    <div class="lesson">
+      <div class="lesson-num">2</div>
+      <div>
+        <div class="lesson-tag">Копирайтер</div>
+        <h4>Тексты в твоём голосе</h4>
+        <p>Передаёшь ИИ свой стиль через три промпта. Один раз. И он пишет как ты — живо, узнаваемо, без переписывания. Правки занимают 5 минут а не час.</p>
+      </div>
+    </div>
+    <div class="lesson">
+      <div class="lesson-num">3</div>
+      <div>
+        <div class="lesson-tag">Сценарист Reels</div>
+        <h4>Рилсы за 10 минут</h4>
+        <p>Настраиваешь ассистента для сценариев. Хук, середина, CTA — всё выстроено по лестнице осознанности клиента. Рилс который останавливает скролл.</p>
+      </div>
+    </div>
+    <div class="lesson">
+      <div class="lesson-num">4</div>
+      <div>
+        <div class="lesson-tag">Контент-планировщик</div>
+        <h4>План на месяц за 20 минут</h4>
+        <p>Собираешь контент-план из реальных болей твоей аудитории. Темы, форматы, хуки. Открываешь в понедельник — и просто делаешь. Никакого «что публиковать сегодня».</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<section class="section">
+  <div class="section-tag">Результат</div>
+  <h2>Что изменится после Workshop</h2>
+  <div class="results-list">
+    <div class="result-item"><div class="result-check">✓</div><p>Личная команда ИИ-ассистентов настроенная под твою нишу, голос и аудиторию</p></div>
+    <div class="result-item"><div class="result-check">✓</div><p>Контент который ведёт аудиторию от «кто ты» до «хочу купить» — без хаотичных постов</p></div>
+    <div class="result-item"><div class="result-check">✓</div><p>Тексты и рилсы в твоём голосе — без часов на переписывание</p></div>
+    <div class="result-item"><div class="result-check">✓</div><p>План на месяц за 20 минут — открываешь в понедельник и просто делаешь</p></div>
+    <div class="result-item"><div class="result-check">✓</div><p>Стабильный поток заявок из блога — без выгорания и сторис 24/7</p></div>
+    <div class="result-item"><div class="result-check">✓</div><p>Уверенность что ИИ усиливает твой голос а не заменяет его</p></div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<section class="section" id="bonus">
+  <div class="section-tag">Бонус</div>
+  <div class="bonus-wrap">
+    <div class="bonus-badge">Включено в стоимость</div>
+    <h3>Закрытый клуб Реалити — месяц доступа</h3>
+    <p>Показываю всё как есть — без фильтров и «успешного успеха». Как я работаю изнутри каждый день.</p>
+    <div class="bonus-items">
+      <div class="bonus-item">Как я использую проекты Claude в своей работе — реальные примеры каждый день</div>
+      <div class="bonus-item">Как делаю продажи через контент — механики, цифры, что работает а что нет</div>
+      <div class="bonus-item">Как упаковала воронку через которую ты сюда попала — весь процесс изнутри</div>
+      <div class="bonus-item">Разборы, инсайты и живые кейсы в процессе — не теория а реальная работа</div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<section class="section">
+  <div class="section-tag">Демо</div>
+  <div class="demo-wrap">
+    <h3>Посмотри как это работает</h3>
+    <p>Попробуй один инструмент из AI Content Studio прямо сейчас — в боте. Без оплаты. Увидишь разницу до и после.</p>
+    <a href="https://t.me/natali_krown_bot" class="btn">Попробовать демо в боте →</a>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<section class="section" id="about">
+  <div class="section-tag">Обо мне</div>
+  <div class="about-grid">
+    <div class="about-photo">
+      <img src="natali_photo.jpg" alt="Наталья Королева">
+    </div>
+    <div class="about-text">
+      <div class="name">Наталья Королева</div>
+      <div class="title">Эксперт по нейросетям и контент-маркетингу</div>
+      <p>Я не технарь. Пришла из бьюти-сферы — была мастером, потом открыла студию, вела курсы. Потом строительный бизнес — закрылся с долгами. Это был опыт.</p>
+      <p>И везде одно и то же — контент съедал огромное количество времени. Пока не разобралась как работать с ИИ правильно.</p>
+      <p>Сейчас веду уроки по маркетингу и ИИ в клубе с 1200+ участниками. И тестирую всё на себе — прежде чем показывать другим.</p>
+      <div class="about-facts">
+        <div class="fact">5+ лет работаю с нейросетями в маркетинге</div>
+        <div class="fact">Куратор AI-клуба Ильи Палия — 1200+ участников</div>
+        <div class="fact">Прошла путь в нескольких нишах — понимаю боль новичка</div>
+        <div class="fact">Объясняю сложное простым языком без технарства</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="tarif-section" id="tarif">
+  <div class="tarif-inner">
+    <div class="section-tag">Стоимость</div>
+    <h2>Один вечер — и система работает постоянно</h2>
+    <div class="tarif-box">
+      <div style="display:flex;gap:24px;margin-bottom:24px;flex-wrap:wrap">
+        <div style="flex:1;min-width:140px;background:rgba(255,255,255,0.05);border:1px solid rgba(201,150,138,0.2);border-radius:12px;padding:16px 20px">
+          <div style="font-size:12px;color:#C4B8AF;margin-bottom:4px;font-family:'Unbounded',sans-serif">Workshop</div>
+          <div style="font-size:20px;font-weight:700;color:#C4B8AF;text-decoration:line-through">4 950 ₽</div>
+        </div>
+        <div style="flex:1;min-width:140px;background:rgba(255,255,255,0.05);border:1px solid rgba(201,150,138,0.2);border-radius:12px;padding:16px 20px">
+          <div style="font-size:12px;color:#C4B8AF;margin-bottom:4px;font-family:'Unbounded',sans-serif">Клуб Реалити</div>
+          <div style="font-size:20px;font-weight:700;color:#C4B8AF;text-decoration:line-through">1 950 ₽</div>
+        </div>
+      </div>
+      <div style="background:rgba(201,150,138,0.1);border:1px solid rgba(201,150,138,0.3);border-radius:12px;padding:16px 20px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+        <div>
+          <div style="font-size:12px;color:#C4B8AF;font-family:'Unbounded',sans-serif;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Спецпредложение</div>
+          <div style="font-size:13px;color:#C4B8AF">Вместо 6 900 ₽</div>
+        </div>
+        <div class="tarif-price" style="margin:0">3 490 ₽</div>
+      </div>
+      <ul class="tarif-includes">
+        <li>4 видеоурока — смотришь и делаешь вместе со мной</li>
+        <li>Готовые промпты к каждому уроку — Control C, Control V</li>
+        <li>4 настроенных ИИ-ассистента в твоём Claude</li>
+        <li>Контент-план на месяц из реальных болей аудитории</li>
+        <li>Месяц доступа в закрытый клуб Реалити</li>
+      </ul>
+      <div class="tarif-cta">
+        <a href="#" class="btn" style="font-size:15px;padding:18px 48px">Купить за 3 490 ₽</a>
+        <div style="font-size:12px;color:#C4B8AF;margin-top:12px">Доступ сразу после оплаты</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<section class="section" id="faq">
+  <div class="section-tag">FAQ</div>
+  <h2>Частые вопросы</h2>
+  <div class="faq">
+    <div class="faq-item">
+      <div class="faq-q"><h4>Я не технарь — справлюсь?</h4><span class="faq-arrow">+</span></div>
+      <div class="faq-a">Да. Нейросети — это не про технологии, это про умение ставить задачи. Если умеешь объяснять — умеешь работать с ИИ. Никакого программирования. Просто копируешь готовый промпт и подставляешь свои данные.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q"><h4>Когда будет доступ к материалам?</h4><span class="faq-arrow">+</span></div>
+      <div class="faq-a">Сразу после оплаты. Никаких ожиданий — заходишь и начинаешь.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q"><h4>Нужен ли платный Claude?</h4><span class="faq-arrow">+</span></div>
+      <div class="faq-a">Для полноценной работы с проектами — да, нужна подписка Claude Pro. Стоит около 20$ в месяц. Без неё часть функций будет недоступна.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q"><h4>Контент будет звучать как я или как робот?</h4><span class="faq-arrow">+</span></div>
+      <div class="faq-a">Как ты. Один из уроков целиком посвящён передаче голоса в ИИ. После него ИИ знает твои интонации, паттерны и слова. Правки занимают 5 минут.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q"><h4>Что такое клуб Реалити?</h4><span class="faq-arrow">+</span></div>
+      <div class="faq-a">Закрытый клуб где я показываю всё изнутри — как работаю с ИИ каждый день, как делаю продажи через контент, как строю воронки. Не теория — реальный процесс в режиме реального времени. Месяц доступа включён в Workshop.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q"><h4>Сколько времени займёт Workshop?</h4><span class="faq-arrow">+</span></div>
+      <div class="faq-a">Один вечер — около 3-4 часов. Смотришь урок и сразу делаешь. К концу вечера у тебя готова работающая система.</div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p>Наталья Королева · <a href="https://t.me/natali_krown">@natali_krown</a></p>
+  <p>Нейросети · Маркетинг · Контент-системы</p>
+</footer>
+
+<script>
+document.querySelectorAll('.faq-item').forEach(item=>{
+  item.querySelector('.faq-q').addEventListener('click',()=>{
+    item.classList.toggle('open');
+  });
+});
+</script>
+</body>
+</html>
