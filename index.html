@@ -505,17 +505,108 @@ footer{flex-direction:column;gap:20px;text-align:center;padding:32px 20px}
 <div style="padding:100px 40px" id="reviews">
   <div style="max-width:1100px;margin:0 auto">
     <div class="section-label"><span>Отзывы</span></div>
-    <h2 style="font-size:clamp(24px,3vw,42px);font-weight:900;margin-bottom:48px;letter-spacing:-0.02em">Что говорят те кто <span class="accent">уже внедрил</span></h2>
-    <div class="reviews-grid">
-      <div class="review-item"><img src="review9.jpg" alt="Отзыв"></div>
-      <div class="review-item"><img src="review8.jpg" alt="Отзыв"></div>
-      <div class="review-item"><img src="review7.jpg" alt="Отзыв"></div>
-      <div class="review-item"><img src="review6.jpg" alt="Отзыв"></div>
-      <div class="review-item"><img src="review5.jpg" alt="Отзыв"></div>
-      <div class="review-item"><img src="review4.jpg" alt="Отзыв"></div>
-      <div class="review-item"><img src="review3.jpg" alt="Отзыв"></div>
-      <div class="review-item"><img src="review2.jpg" alt="Отзыв"></div>
-      <div class="review-item"><img src="review1.jpg" alt="Отзыв"></div>
+    <h2 style="font-size:clamp(24px,3vw,42px);font-weight:900;margin-bottom:64px;letter-spacing:-0.02em">Что говорят те кто <span class="accent">уже внедрил</span></h2>
+    <div style="display:flex;justify-content:center;align-items:center;gap:80px;flex-wrap:wrap">
+
+      <!-- ТЕЛЕФОН -->
+      <div style="position:relative;flex-shrink:0">
+        <!-- Рамка телефона -->
+        <div style="width:320px;height:620px;border:2px solid #333;border-radius:44px;background:#0a0a0a;position:relative;box-shadow:0 0 0 1px #222,0 40px 80px rgba(0,0,0,0.8),inset 0 0 0 1px #1a1a1a">
+          <!-- Верхний вырез -->
+          <div style="position:absolute;top:0;left:50%;transform:translateX(-50%);width:120px;height:28px;background:#0a0a0a;border-radius:0 0 20px 20px;z-index:10;border:2px solid #333;border-top:none"></div>
+          <!-- Динамик -->
+          <div style="position:absolute;top:10px;left:50%;transform:translateX(-50%);width:50px;height:4px;background:#222;border-radius:2px;z-index:11"></div>
+          <!-- Экран -->
+          <div style="position:absolute;top:0;left:0;right:0;bottom:0;border-radius:42px;overflow:hidden;background:#111">
+            <!-- Статус бар -->
+            <div style="background:#111;padding:14px 20px 8px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #1a1a1a">
+              <span style="font-size:11px;color:#888;font-family:'Manrope',sans-serif">9:41</span>
+              <span style="font-size:10px;color:var(--blue);font-family:'Unbounded',sans-serif;letter-spacing:0.05em">AI CONTENT STUDIO</span>
+              <span style="font-size:11px;color:#888">●●●</span>
+            </div>
+            <!-- Слайдер отзывов -->
+            <div id="phoneSlider" style="display:flex;transition:transform 0.4s cubic-bezier(0.4,0,0.2,1);height:calc(100% - 90px)">
+              <div class="phone-slide" style="min-width:100%;padding:16px;overflow-y:auto">
+                <img src="review1.jpg" alt="Отзыв" style="width:100%;border-radius:12px;display:block">
+              </div>
+              <div class="phone-slide" style="min-width:100%;padding:16px;overflow-y:auto">
+                <img src="review2.jpg" alt="Отзыв" style="width:100%;border-radius:12px;display:block">
+              </div>
+              <div class="phone-slide" style="min-width:100%;padding:16px;overflow-y:auto">
+                <img src="review3.jpg" alt="Отзыв" style="width:100%;border-radius:12px;display:block">
+              </div>
+              <div class="phone-slide" style="min-width:100%;padding:16px;overflow-y:auto">
+                <img src="review4.jpg" alt="Отзыв" style="width:100%;border-radius:12px;display:block">
+              </div>
+              <div class="phone-slide" style="min-width:100%;padding:16px;overflow-y:auto">
+                <img src="review5.jpg" alt="Отзыв" style="width:100%;border-radius:12px;display:block">
+              </div>
+              <div class="phone-slide" style="min-width:100%;padding:16px;overflow-y:auto">
+                <img src="review6.jpg" alt="Отзыв" style="width:100%;border-radius:12px;display:block">
+              </div>
+              <div class="phone-slide" style="min-width:100%;padding:16px;overflow-y:auto">
+                <img src="review7.jpg" alt="Отзыв" style="width:100%;border-radius:12px;display:block">
+              </div>
+              <div class="phone-slide" style="min-width:100%;padding:16px;overflow-y:auto">
+                <img src="review8.jpg" alt="Отзыв" style="width:100%;border-radius:12px;display:block">
+              </div>
+              <div class="phone-slide" style="min-width:100%;padding:16px;overflow-y:auto">
+                <img src="review9.jpg" alt="Отзыв" style="width:100%;border-radius:12px;display:block">
+              </div>
+              <div class="phone-slide" style="min-width:100%;padding:16px;overflow-y:auto">
+                <img src="review10.jpg" alt="Отзыв" style="width:100%;border-radius:12px;display:block">
+              </div>
+            </div>
+            <!-- Навигация -->
+            <div style="position:absolute;bottom:0;left:0;right:0;padding:12px 20px;background:linear-gradient(transparent,#111);display:flex;align-items:center;justify-content:space-between">
+              <button onclick="phonePrev()" style="background:rgba(59,130,246,0.15);border:1px solid rgba(59,130,246,0.3);color:var(--blue);width:36px;height:36px;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center">‹</button>
+              <div id="phoneDots" style="display:flex;gap:6px">
+                <span class="pdot active" style="width:6px;height:6px;border-radius:50%;background:var(--blue);transition:all 0.3s"></span>
+                <span class="pdot" style="width:6px;height:6px;border-radius:50%;background:#333;transition:all 0.3s"></span>
+                <span class="pdot" style="width:6px;height:6px;border-radius:50%;background:#333;transition:all 0.3s"></span>
+                <span class="pdot" style="width:6px;height:6px;border-radius:50%;background:#333;transition:all 0.3s"></span>
+                <span class="pdot" style="width:6px;height:6px;border-radius:50%;background:#333;transition:all 0.3s"></span>
+                <span class="pdot" style="width:6px;height:6px;border-radius:50%;background:#333;transition:all 0.3s"></span>
+                <span class="pdot" style="width:6px;height:6px;border-radius:50%;background:#333;transition:all 0.3s"></span>
+                <span class="pdot" style="width:6px;height:6px;border-radius:50%;background:#333;transition:all 0.3s"></span>
+                <span class="pdot" style="width:6px;height:6px;border-radius:50%;background:#333;transition:all 0.3s"></span>
+                <span class="pdot" style="width:6px;height:6px;border-radius:50%;background:#333;transition:all 0.3s"></span>
+              </div>
+              <button onclick="phoneNext()" style="background:rgba(59,130,246,0.15);border:1px solid rgba(59,130,246,0.3);color:var(--blue);width:36px;height:36px;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center">›</button>
+            </div>
+          </div>
+          <!-- Кнопка home -->
+          <div style="position:absolute;bottom:-20px;left:50%;transform:translateX(-50%);width:120px;height:4px;background:#333;border-radius:2px"></div>
+        </div>
+        <!-- Боковые кнопки -->
+        <div style="position:absolute;right:-3px;top:120px;width:3px;height:40px;background:#333;border-radius:2px"></div>
+        <div style="position:absolute;left:-3px;top:100px;width:3px;height:30px;background:#333;border-radius:2px"></div>
+        <div style="position:absolute;left:-3px;top:145px;width:3px;height:30px;background:#333;border-radius:2px"></div>
+      </div>
+
+      <!-- ТЕКСТ РЯДОМ -->
+      <div style="max-width:400px">
+        <div style="font-family:'Unbounded',sans-serif;font-size:clamp(20px,2.5vw,32px);font-weight:900;margin-bottom:24px;line-height:1.2">Реальные результаты<br><span class="accent">реальных людей</span></div>
+        <p style="font-size:15px;color:var(--gray-light);line-height:1.8;margin-bottom:32px">Это не выдуманные отзывы. Это люди которые прошли Workshop и уже работают с системой. Читай — и узнавай себя в их историях.</p>
+        <div style="display:flex;flex-direction:column;gap:16px">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:8px;height:8px;background:var(--blue);border-radius:50%;flex-shrink:0"></div>
+            <p style="font-size:14px;color:var(--gray-light)">Настроили систему за один вечер</p>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:8px;height:8px;background:var(--blue);border-radius:50%;flex-shrink:0"></div>
+            <p style="font-size:14px;color:var(--gray-light)">Контент в своём голосе без переписывания</p>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:8px;height:8px;background:var(--blue);border-radius:50%;flex-shrink:0"></div>
+            <p style="font-size:14px;color:var(--gray-light)">Заявки из блога которых раньше не было</p>
+          </div>
+        </div>
+        <div style="margin-top:40px">
+          <a href="https://t.me/tribute/app?startapp=sXMG" class="btn-primary">ХОЧУ ТАК ЖЕ</a>
+        </div>
+      </div>
+
     </div>
   </div>
 </div>
@@ -606,6 +697,24 @@ document.querySelectorAll('.faq-item').forEach(item=>{
     item.classList.toggle('open');
   });
 });
+
+// Phone slider
+let phoneIndex = 0;
+const phoneTotal = 10;
+let phoneAuto;
+
+function phoneGo(n){
+  phoneIndex = (n + phoneTotal) % phoneTotal;
+  document.getElementById('phoneSlider').style.transform = `translateX(-${phoneIndex * 100}%)`;
+  document.querySelectorAll('.pdot').forEach((d,i)=>{
+    d.style.background = i === phoneIndex ? 'var(--blue)' : '#333';
+    d.style.width = i === phoneIndex ? '18px' : '6px';
+  });
+}
+function phoneNext(){ phoneGo(phoneIndex + 1); resetAuto(); }
+function phonePrev(){ phoneGo(phoneIndex - 1); resetAuto(); }
+function resetAuto(){ clearInterval(phoneAuto); phoneAuto = setInterval(()=>phoneGo(phoneIndex+1), 3500); }
+resetAuto();
 </script>
 </body>
 </html>
