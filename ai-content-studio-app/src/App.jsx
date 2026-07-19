@@ -74,6 +74,36 @@ function parseJSON(raw) {
   }
 }
 
+// ── LIGHTWEIGHT MARKDOWN (bold / italic / quotes / --- dividers) ──
+function renderInline(text, keyPrefix) {
+  const parts = [];
+  const regex = /\*\*(.+?)\*\*|\*(.+?)\*/g;
+  let lastIndex = 0, i = 0, match;
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) parts.push(text.slice(lastIndex, match.index));
+    if (match[1] !== undefined) parts.push(<strong key={`${keyPrefix}-${i++}`}>{match[1]}</strong>);
+    else parts.push(<em key={`${keyPrefix}-${i++}`}>{match[2]}</em>);
+    lastIndex = regex.lastIndex;
+  }
+  if (lastIndex < text.length) parts.push(text.slice(lastIndex));
+  return parts;
+}
+function MsgText({ text }) {
+  const lines = (text || "").split("\n");
+  return lines.map((line, i) => {
+    const trimmed = line.trim();
+    if (!trimmed) return null;
+    if (/^-{3,}$/.test(trimmed)) return <div key={i} style={{ height: 1, background: "currentColor", opacity: .15, margin: "7px 0" }} />;
+    const isQuote = trimmed.startsWith("> ") || trimmed.startsWith(">");
+    const content = isQuote ? trimmed.replace(/^>\s*/, "") : line;
+    return (
+      <div key={i} style={isQuote ? { borderLeft: "2.5px solid currentColor", opacity: .75, paddingLeft: 8, margin: "5px 0", fontStyle: "italic" } : { margin: "3px 0" }}>
+        {renderInline(content, `l${i}`)}
+      </div>
+    );
+  });
+}
+
 // ── STYLES ──
 const s = {
   nav: { background: COLORS.white, borderBottom: `1.5px solid ${COLORS.brd}`, padding: "0 16px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 50, position: "sticky", top: 0, zIndex: 100 },
@@ -556,8 +586,8 @@ function CardModal({ reel, profile, reels, onUpdate, onDelete }) {
         ))}
       </div>
 
-      {step === 0 && <IdeaStep reel={reel} profile={profile} reels={reels} onUpdate={onUpdate} />}
-      {step === 1 && <ScriptStep reel={reel} profile={profile} onUpdate={onUpdate} />}
+      {step === 0 && <IdeaStep reel={reel} profile={profile} reels={reels} onUpdate={onUpdate} onAdvance={() => setStep(1)} />}
+      {step === 1 && <ScriptStep reel={reel} profile={profile} onUpdate={onUpdate} onAdvance={() => setStep(2)} />}
       {step === 2 && <CopyStep reel={reel} profile={profile} onUpdate={onUpdate} />}
       {step === 3 && (
         <NotesStep reel={reel} onUpdate={onUpdate} onDeleteRequest={() => setShowConfirm(true)} />
@@ -580,7 +610,7 @@ function CardModal({ reel, profile, reels, onUpdate, onDelete }) {
 }
 
 // ── IDEA STEP ──
-function IdeaStep({ reel, profile, reels, onUpdate }) {
+function IdeaStep({ reel, profile, reels, onUpdate, onAdvance }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const chatRef = useRef(null);
@@ -634,7 +664,7 @@ function IdeaStep({ reel, profile, reels, onUpdate }) {
       )}
       <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 8 }}>{reel.topic ? "Идеолог уточнит угол и обоснует зачем снимать этот ролик" : "Нет темы? Агент поможет придумать — просто отправь сообщение"}</div>
       <div ref={chatRef} style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 240, overflowY: "auto", marginBottom: 8 }}>
-        {(reel.idea_chat || []).map((m, i) => <div key={i} style={s.chatMsg(m.role)}>{m.content}</div>)}
+        {(reel.idea_chat || []).map((m, i) => <div key={i} style={s.chatMsg(m.role)}><MsgText text={m.content} /></div>)}
         {loading && <div style={{ ...s.chatMsg("assistant"), opacity: .6, fontStyle: "italic" }}>Думаю...</div>}
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 7 }}>
@@ -646,12 +676,16 @@ function IdeaStep({ reel, profile, reels, onUpdate }) {
         <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }} placeholder="Сообщение Идеологу..." rows={1} style={{ ...s.field, flex: 1, minHeight: 38, maxHeight: 90 }} />
         <button onClick={() => send(input)} disabled={loading} style={{ ...s.btnRose, width: 36, height: 36, padding: 0, flexShrink: 0, opacity: loading ? .4 : 1 }}>→</button>
       </div>
+      <div style={{ height: 1, background: COLORS.brd, margin: "14px 0 10px" }} />
+      <button onClick={onAdvance} disabled={!reel.topic} style={{ ...s.btnRose, width: "100%", opacity: reel.topic ? 1 : .4, cursor: reel.topic ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+        Идея согласована — дальше к Сценаристу →
+      </button>
     </div>
   );
 }
 
 // ── SCRIPT STEP ──
-function ScriptStep({ reel, profile, onUpdate }) {
+function ScriptStep({ reel, profile, onUpdate, onAdvance }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const chatRef = useRef(null);
@@ -715,7 +749,7 @@ function ScriptStep({ reel, profile, onUpdate }) {
       )}
       <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 8 }}>Введи черновик или идею — Сценарист напишет или доработает. Каждая версия сохраняется.</div>
       <div ref={chatRef} style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 220, overflowY: "auto", marginBottom: 8 }}>
-        {(reel.script_chat || []).map((m, i) => <div key={i} style={s.chatMsg(m.role)}>{m.content}</div>)}
+        {(reel.script_chat || []).map((m, i) => <div key={i} style={s.chatMsg(m.role)}><MsgText text={m.content} /></div>)}
         {loading && <div style={{ ...s.chatMsg("assistant"), opacity: .6, fontStyle: "italic" }}>Думаю...</div>}
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 7 }}>
@@ -739,6 +773,10 @@ function ScriptStep({ reel, profile, onUpdate }) {
           ))}
         </div>
       )}
+      <div style={{ height: 1, background: COLORS.brd, margin: "14px 0 10px" }} />
+      <button onClick={onAdvance} disabled={reel.selected_script < 0} style={{ ...s.btnRose, width: "100%", opacity: reel.selected_script >= 0 ? 1 : .4, cursor: reel.selected_script >= 0 ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+        Сценарий согласован — дальше к Копирайтеру →
+      </button>
     </div>
   );
 }
