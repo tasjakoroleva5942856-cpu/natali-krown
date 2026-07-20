@@ -139,6 +139,8 @@ export default function App() {
   const [showNewCard, setShowNewCard] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [apiKey, setApiKey] = useState("");
+  const [hoveredCardId, setHoveredCardId] = useState(null);
+  const [deleteBoardCardId, setDeleteBoardCardId] = useState(null);
   const saveTimer = useRef(null);
 
   useEffect(() => {
@@ -178,7 +180,13 @@ export default function App() {
     });
   }, [scheduleAutosave]);
 
+  const deleteReel = useCallback((id) => {
+    setReels(prev => { const u = prev.filter(r => r.id !== id); saveReels(u); return u; });
+    setCardId(prev => (prev === id ? null : prev));
+  }, [saveReels]);
+
   const currentReel = reels.find(r => r.id === cardId);
+  const deleteBoardCard = reels.find(r => r.id === deleteBoardCardId);
 
   return (
     <div style={{ fontFamily: "system-ui, sans-serif", background: COLORS.cream, minHeight: "100vh", color: COLORS.brown, fontSize: 13 }}>
@@ -235,8 +243,13 @@ export default function App() {
                     <div style={{ display: "flex", flexDirection: "column", gap: 6, minHeight: 40 }}>
                       {cards.length === 0 && <div style={{ textAlign: "center", color: COLORS.brownS, fontSize: 10, padding: "12px 4px", opacity: .5 }}>Пусто</div>}
                       {cards.map(r => (
-                        <div key={r.id} onClick={() => setCardId(r.id)} style={{ background: COLORS.white, border: `1.5px solid ${COLORS.brd}`, borderRadius: 10, padding: 10, cursor: "pointer" }}>
-                          <div style={{ fontWeight: 700, fontSize: 11, color: COLORS.brown, marginBottom: 4, lineHeight: 1.4 }}>{r.topic || "Без темы"}</div>
+                        <div key={r.id} onClick={() => setCardId(r.id)} onMouseEnter={() => setHoveredCardId(r.id)} onMouseLeave={() => setHoveredCardId(prev => (prev === r.id ? null : prev))} style={{ position: "relative", background: COLORS.white, border: `1.5px solid ${COLORS.brd}`, borderRadius: 10, padding: 10, cursor: "pointer" }}>
+                          <button
+                            onClick={e => { e.stopPropagation(); setDeleteBoardCardId(r.id); }}
+                            title="Удалить"
+                            style={{ position: "absolute", top: 6, right: 6, width: 20, height: 20, borderRadius: "50%", border: "none", background: "#fff", color: COLORS.brownS, fontSize: 11, lineHeight: "20px", textAlign: "center", padding: 0, cursor: "pointer", boxShadow: "0 1px 3px rgba(35,18,26,.15)", opacity: hoveredCardId === r.id ? 1 : 0, transition: "opacity .12s" }}
+                          >✕</button>
+                          <div style={{ fontWeight: 700, fontSize: 11, color: COLORS.brown, marginBottom: 4, lineHeight: 1.4, paddingRight: 16 }}>{r.topic || "Без темы"}</div>
                           <div style={{ fontSize: 10, color: COLORS.brownS, lineHeight: 1.4, marginBottom: 6, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{(r.hooks?.[r.selected_hook || 0] || r.topic || "").substring(0, 70)}</div>
                           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                             <div style={{ display: "flex", gap: 3 }}>
@@ -273,10 +286,7 @@ export default function App() {
             <CardModal
               reel={currentReel} profile={profile} reels={reels}
               onUpdate={(changes) => updateReel(cardId, changes)}
-              onDelete={() => {
-                setReels(prev => { const u = prev.filter(r => r.id !== cardId); saveReels(u); return u; });
-                setCardId(null);
-              }}
+              onDelete={() => deleteReel(cardId)}
             />
           </div>
         </div>
@@ -293,6 +303,20 @@ export default function App() {
             setCardId(reel.id);
           }}
         />
+      )}
+
+      {/* DELETE FROM BOARD CONFIRM */}
+      {deleteBoardCardId && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(35,18,26,.5)", zIndex: 400, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={e => { if (e.target === e.currentTarget) setDeleteBoardCardId(null); }}>
+          <div style={{ background: "#fff", borderRadius: 12, padding: 20, maxWidth: 300, width: "90%", textAlign: "center" }}>
+            <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 6 }}>Удалить ролик?</div>
+            <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 16 }}>«{deleteBoardCard?.topic || "Без темы"}» — это нельзя отменить.</div>
+            <div style={{ display: "flex", gap: 7, justifyContent: "center" }}>
+              <button style={{ ...s.btnRose, background: "#DC2626" }} onClick={() => { deleteReel(deleteBoardCardId); setDeleteBoardCardId(null); }}>Удалить</button>
+              <button style={s.btnOutline} onClick={() => setDeleteBoardCardId(null)}>Отмена</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -549,6 +573,7 @@ function NewCardModal({ profile, onClose, onCreate }) {
 function CardModal({ reel, profile, reels, onUpdate, onDelete }) {
   const [step, setStep] = useState(0);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [autoGenCopy, setAutoGenCopy] = useState(false);
   const p = PLATFORMS[reel.platform];
   const lead = reel.lead_magnet_idx != null ? profile.leads?.[reel.lead_magnet_idx] : null;
 
@@ -587,8 +612,8 @@ function CardModal({ reel, profile, reels, onUpdate, onDelete }) {
       </div>
 
       {step === 0 && <IdeaStep reel={reel} profile={profile} reels={reels} onUpdate={onUpdate} onAdvance={() => setStep(1)} />}
-      {step === 1 && <ScriptStep reel={reel} profile={profile} onUpdate={onUpdate} onAdvance={() => setStep(2)} />}
-      {step === 2 && <CopyStep reel={reel} profile={profile} onUpdate={onUpdate} />}
+      {step === 1 && <ScriptStep reel={reel} profile={profile} onUpdate={onUpdate} onAdvance={() => setStep(2)} onScriptReadyForReels={() => { setStep(2); setAutoGenCopy(true); }} />}
+      {step === 2 && <CopyStep reel={reel} profile={profile} onUpdate={onUpdate} autoGenerate={autoGenCopy} onAutoGenerateHandled={() => setAutoGenCopy(false)} />}
       {step === 3 && (
         <NotesStep reel={reel} onUpdate={onUpdate} onDeleteRequest={() => setShowConfirm(true)} />
       )}
@@ -685,7 +710,7 @@ function IdeaStep({ reel, profile, reels, onUpdate, onAdvance }) {
 }
 
 // ── SCRIPT STEP ──
-function ScriptStep({ reel, profile, onUpdate, onAdvance }) {
+function ScriptStep({ reel, profile, onUpdate, onAdvance, onScriptReadyForReels }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const chatRef = useRef(null);
@@ -709,6 +734,7 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance }) {
 
     const newChat = [...(reel.script_chat || []), { role: "user", content: msg }];
     onUpdate({ script_chat: newChat });
+    let scriptGenerated = false;
     try {
       const messages = newChat.slice(-6).map(m => ({ role: m.role, content: m.content }));
       const reply = await callAPI(messages, system, 1000);
@@ -719,6 +745,7 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance }) {
         const versions = [...(reel.script_versions || []), sm[1].trim()];
         updates.script_versions = versions;
         updates.selected_script = versions.length - 1;
+        scriptGenerated = true;
       }
       const hm = reply.match(/ХУКИ:([\s\S]+)/);
       if (hm) {
@@ -730,10 +757,25 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance }) {
       onUpdate({ script_chat: [...newChat, { role: "assistant", content: "Ошибка: " + e.message }] });
     }
     setLoading(false);
+    return scriptGenerated;
+  };
+
+  const generateFromIdea = async () => {
+    const ok = await send(`Сгенерируй сценарий на тему: ${reel.topic}`);
+    if (ok && reel.format === "Reels") onScriptReadyForReels?.();
   };
 
   return (
     <div>
+      {!(reel.script_versions || []).length && (
+        <div style={{ marginBottom: 14 }}>
+          <span style={s.label}>Идея (согласована на прошлом шаге — можно поправить)</span>
+          <textarea style={{ ...s.field, minHeight: 60 }} rows={3} value={reel.topic || ""} onChange={e => onUpdate({ topic: e.target.value })} placeholder="Тема ролика..." />
+          <button onClick={generateFromIdea} disabled={loading || !reel.topic?.trim()} style={{ ...s.btnRose, width: "100%", marginTop: 8, opacity: (loading || !reel.topic?.trim()) ? .5 : 1 }}>
+            {loading ? "Генерирую..." : "✦ Сгенерировать сценарий"}
+          </button>
+        </div>
+      )}
       {/* VERSIONS */}
       {(reel.script_versions || []).length > 0 && (
         <div style={{ marginBottom: 10 }}>
@@ -747,7 +789,7 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance }) {
           ))}
         </div>
       )}
-      <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 8 }}>Введи черновик или идею — Сценарист напишет или доработает. Каждая версия сохраняется.</div>
+      <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 8 }}>{(reel.script_versions || []).length ? "Правки и новые версии — прямо в чате. Каждая версия сохраняется." : "Отредактируй идею выше и нажми «Сгенерировать сценарий», или сразу опиши, что нужно, в чате."}</div>
       <div ref={chatRef} style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 220, overflowY: "auto", marginBottom: 8 }}>
         {(reel.script_chat || []).map((m, i) => <div key={i} style={s.chatMsg(m.role)}><MsgText text={m.content} /></div>)}
         {loading && <div style={{ ...s.chatMsg("assistant"), opacity: .6, fontStyle: "italic" }}>Думаю...</div>}
@@ -782,7 +824,7 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance }) {
 }
 
 // ── COPY STEP ──
-function CopyStep({ reel, profile, onUpdate }) {
+function CopyStep({ reel, profile, onUpdate, autoGenerate, onAutoGenerateHandled }) {
   const [loading, setLoading] = useState(false);
 
   const getCtx = () => {
@@ -819,6 +861,13 @@ function CopyStep({ reel, profile, onUpdate }) {
     } catch (e) { alert("Ошибка: " + e.message); }
     setLoading(false);
   };
+
+  useEffect(() => {
+    if (!autoGenerate) return;
+    onAutoGenerateHandled?.();
+    genMain();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoGenerate]);
 
   const adaptAll = async () => {
     setLoading(true);
