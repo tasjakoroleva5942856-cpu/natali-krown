@@ -549,6 +549,7 @@ function NewCardModal({ profile, onClose, onCreate }) {
 function CardModal({ reel, profile, reels, onUpdate, onDelete }) {
   const [step, setStep] = useState(0);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [autoGenCopy, setAutoGenCopy] = useState(false);
   const p = PLATFORMS[reel.platform];
   const lead = reel.lead_magnet_idx != null ? profile.leads?.[reel.lead_magnet_idx] : null;
 
@@ -587,8 +588,8 @@ function CardModal({ reel, profile, reels, onUpdate, onDelete }) {
       </div>
 
       {step === 0 && <IdeaStep reel={reel} profile={profile} reels={reels} onUpdate={onUpdate} onAdvance={() => setStep(1)} />}
-      {step === 1 && <ScriptStep reel={reel} profile={profile} onUpdate={onUpdate} onAdvance={() => setStep(2)} />}
-      {step === 2 && <CopyStep reel={reel} profile={profile} onUpdate={onUpdate} />}
+      {step === 1 && <ScriptStep reel={reel} profile={profile} onUpdate={onUpdate} onAdvance={() => setStep(2)} onScriptReadyForReels={() => { setStep(2); setAutoGenCopy(true); }} />}
+      {step === 2 && <CopyStep reel={reel} profile={profile} onUpdate={onUpdate} autoGenerate={autoGenCopy} onAutoGenerateHandled={() => setAutoGenCopy(false)} />}
       {step === 3 && (
         <NotesStep reel={reel} onUpdate={onUpdate} onDeleteRequest={() => setShowConfirm(true)} />
       )}
@@ -685,7 +686,7 @@ function IdeaStep({ reel, profile, reels, onUpdate, onAdvance }) {
 }
 
 // ── SCRIPT STEP ──
-function ScriptStep({ reel, profile, onUpdate, onAdvance }) {
+function ScriptStep({ reel, profile, onUpdate, onAdvance, onScriptReadyForReels }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const chatRef = useRef(null);
@@ -709,6 +710,7 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance }) {
 
     const newChat = [...(reel.script_chat || []), { role: "user", content: msg }];
     onUpdate({ script_chat: newChat });
+    let scriptGenerated = false;
     try {
       const messages = newChat.slice(-6).map(m => ({ role: m.role, content: m.content }));
       const reply = await callAPI(messages, system, 1000);
@@ -719,6 +721,7 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance }) {
         const versions = [...(reel.script_versions || []), sm[1].trim()];
         updates.script_versions = versions;
         updates.selected_script = versions.length - 1;
+        scriptGenerated = true;
       }
       const hm = reply.match(/ХУКИ:([\s\S]+)/);
       if (hm) {
@@ -730,10 +733,25 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance }) {
       onUpdate({ script_chat: [...newChat, { role: "assistant", content: "Ошибка: " + e.message }] });
     }
     setLoading(false);
+    return scriptGenerated;
+  };
+
+  const generateFromIdea = async () => {
+    const ok = await send(`Сгенерируй сценарий на тему: ${reel.topic}`);
+    if (ok && reel.format === "Reels") onScriptReadyForReels?.();
   };
 
   return (
     <div>
+      {!(reel.script_versions || []).length && (
+        <div style={{ marginBottom: 14 }}>
+          <span style={s.label}>Идея (согласована на прошлом шаге — можно поправить)</span>
+          <textarea style={{ ...s.field, minHeight: 60 }} rows={3} value={reel.topic || ""} onChange={e => onUpdate({ topic: e.target.value })} placeholder="Тема ролика..." />
+          <button onClick={generateFromIdea} disabled={loading || !reel.topic?.trim()} style={{ ...s.btnRose, width: "100%", marginTop: 8, opacity: (loading || !reel.topic?.trim()) ? .5 : 1 }}>
+            {loading ? "Генерирую..." : "✦ Сгенерировать сценарий"}
+          </button>
+        </div>
+      )}
       {/* VERSIONS */}
       {(reel.script_versions || []).length > 0 && (
         <div style={{ marginBottom: 10 }}>
@@ -747,7 +765,7 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance }) {
           ))}
         </div>
       )}
-      <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 8 }}>Введи черновик или идею — Сценарист напишет или доработает. Каждая версия сохраняется.</div>
+      <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 8 }}>{(reel.script_versions || []).length ? "Правки и новые версии — прямо в чате. Каждая версия сохраняется." : "Отредактируй идею выше и нажми «Сгенерировать сценарий», или сразу опиши, что нужно, в чате."}</div>
       <div ref={chatRef} style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 220, overflowY: "auto", marginBottom: 8 }}>
         {(reel.script_chat || []).map((m, i) => <div key={i} style={s.chatMsg(m.role)}><MsgText text={m.content} /></div>)}
         {loading && <div style={{ ...s.chatMsg("assistant"), opacity: .6, fontStyle: "italic" }}>Думаю...</div>}
@@ -782,7 +800,7 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance }) {
 }
 
 // ── COPY STEP ──
-function CopyStep({ reel, profile, onUpdate }) {
+function CopyStep({ reel, profile, onUpdate, autoGenerate, onAutoGenerateHandled }) {
   const [loading, setLoading] = useState(false);
 
   const getCtx = () => {
@@ -819,6 +837,13 @@ function CopyStep({ reel, profile, onUpdate }) {
     } catch (e) { alert("Ошибка: " + e.message); }
     setLoading(false);
   };
+
+  useEffect(() => {
+    if (!autoGenerate) return;
+    onAutoGenerateHandled?.();
+    genMain();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoGenerate]);
 
   const adaptAll = async () => {
     setLoading(true);
