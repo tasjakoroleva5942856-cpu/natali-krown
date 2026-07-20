@@ -139,6 +139,8 @@ export default function App() {
   const [showNewCard, setShowNewCard] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [apiKey, setApiKey] = useState("");
+  const [hoveredCardId, setHoveredCardId] = useState(null);
+  const [deleteBoardCardId, setDeleteBoardCardId] = useState(null);
   const saveTimer = useRef(null);
 
   useEffect(() => {
@@ -178,7 +180,13 @@ export default function App() {
     });
   }, [scheduleAutosave]);
 
+  const deleteReel = useCallback((id) => {
+    setReels(prev => { const u = prev.filter(r => r.id !== id); saveReels(u); return u; });
+    setCardId(prev => (prev === id ? null : prev));
+  }, [saveReels]);
+
   const currentReel = reels.find(r => r.id === cardId);
+  const deleteBoardCard = reels.find(r => r.id === deleteBoardCardId);
 
   return (
     <div style={{ fontFamily: "system-ui, sans-serif", background: COLORS.cream, minHeight: "100vh", color: COLORS.brown, fontSize: 13 }}>
@@ -235,8 +243,13 @@ export default function App() {
                     <div style={{ display: "flex", flexDirection: "column", gap: 6, minHeight: 40 }}>
                       {cards.length === 0 && <div style={{ textAlign: "center", color: COLORS.brownS, fontSize: 10, padding: "12px 4px", opacity: .5 }}>Пусто</div>}
                       {cards.map(r => (
-                        <div key={r.id} onClick={() => setCardId(r.id)} style={{ background: COLORS.white, border: `1.5px solid ${COLORS.brd}`, borderRadius: 10, padding: 10, cursor: "pointer" }}>
-                          <div style={{ fontWeight: 700, fontSize: 11, color: COLORS.brown, marginBottom: 4, lineHeight: 1.4 }}>{r.topic || "Без темы"}</div>
+                        <div key={r.id} onClick={() => setCardId(r.id)} onMouseEnter={() => setHoveredCardId(r.id)} onMouseLeave={() => setHoveredCardId(prev => (prev === r.id ? null : prev))} style={{ position: "relative", background: COLORS.white, border: `1.5px solid ${COLORS.brd}`, borderRadius: 10, padding: 10, cursor: "pointer" }}>
+                          <button
+                            onClick={e => { e.stopPropagation(); setDeleteBoardCardId(r.id); }}
+                            title="Удалить"
+                            style={{ position: "absolute", top: 6, right: 6, width: 20, height: 20, borderRadius: "50%", border: "none", background: "#fff", color: COLORS.brownS, fontSize: 11, lineHeight: "20px", textAlign: "center", padding: 0, cursor: "pointer", boxShadow: "0 1px 3px rgba(35,18,26,.15)", opacity: hoveredCardId === r.id ? 1 : 0, transition: "opacity .12s" }}
+                          >✕</button>
+                          <div style={{ fontWeight: 700, fontSize: 11, color: COLORS.brown, marginBottom: 4, lineHeight: 1.4, paddingRight: 16 }}>{r.topic || "Без темы"}</div>
                           <div style={{ fontSize: 10, color: COLORS.brownS, lineHeight: 1.4, marginBottom: 6, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{(r.hooks?.[r.selected_hook || 0] || r.topic || "").substring(0, 70)}</div>
                           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                             <div style={{ display: "flex", gap: 3 }}>
@@ -273,10 +286,7 @@ export default function App() {
             <CardModal
               reel={currentReel} profile={profile} reels={reels}
               onUpdate={(changes) => updateReel(cardId, changes)}
-              onDelete={() => {
-                setReels(prev => { const u = prev.filter(r => r.id !== cardId); saveReels(u); return u; });
-                setCardId(null);
-              }}
+              onDelete={() => deleteReel(cardId)}
             />
           </div>
         </div>
@@ -293,6 +303,20 @@ export default function App() {
             setCardId(reel.id);
           }}
         />
+      )}
+
+      {/* DELETE FROM BOARD CONFIRM */}
+      {deleteBoardCardId && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(35,18,26,.5)", zIndex: 400, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={e => { if (e.target === e.currentTarget) setDeleteBoardCardId(null); }}>
+          <div style={{ background: "#fff", borderRadius: 12, padding: 20, maxWidth: 300, width: "90%", textAlign: "center" }}>
+            <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 6 }}>Удалить ролик?</div>
+            <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 16 }}>«{deleteBoardCard?.topic || "Без темы"}» — это нельзя отменить.</div>
+            <div style={{ display: "flex", gap: 7, justifyContent: "center" }}>
+              <button style={{ ...s.btnRose, background: "#DC2626" }} onClick={() => { deleteReel(deleteBoardCardId); setDeleteBoardCardId(null); }}>Удалить</button>
+              <button style={s.btnOutline} onClick={() => setDeleteBoardCardId(null)}>Отмена</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
