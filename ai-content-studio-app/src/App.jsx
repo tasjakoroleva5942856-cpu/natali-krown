@@ -60,7 +60,7 @@ async function callAPI(messages, system, maxTokens = 1000) {
   if (key) headers["x-api-key"] = key;
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST", headers,
-    body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: maxTokens, system, messages }),
+    body: JSON.stringify({ model: "claude-sonnet-5", max_tokens: maxTokens, system, messages }),
   });
   const d = await r.json();
   if (d.error) throw new Error(d.error.message || "API ошибка");
@@ -656,7 +656,7 @@ function IdeaStep({ reel, profile, reels, onUpdate, onAdvance }) {
     if (profile.memory) ctx += `=== ПАТТЕРНЫ ===\n${profile.memory.substring(0, 200)}\n\n`;
     (profile.materials || []).filter(m => m.use?.idea).forEach(m => { ctx += `=== ${m.name.toUpperCase()} ===\n${m.text.substring(0, 300)}\n\n`; });
 
-    const system = `Ты — Идеолог, стратег по контенту.\n\n${ctx}\nПлощадка: ${p?.name} · ${reel.format}\n${reel.hunt_stage ? `Ступень Ханта: ${reel.hunt_stage} (${HUNT_HINTS[reel.hunt_stage]})` : "Ступень: определи сам"}\n${existingTopics ? `Уже снятые темы (не повторяться): ${existingTopics}` : ""}\n${lead ? `Лид-магнит: ${lead.name} (${lead.link})` : ""}\n\nЗадачи:\n— Помочь найти тему (задай 1-2 вопроса если темы нет)\n— Предложить угол под ЦА\n— Обосновать зачем снимать для воронки\nЕсли предлагаешь тему — начни строку с ТЕМА:\nОтвечай кратко, по делу, на русском.`;
+    const system = `Ты — Идеолог, стратег по вирусному контенту. Тон — честный и по делу: не хвалишь идею ради вежливости, а сразу называешь сильные и слабые стороны.\n\n${ctx}\nПлощадка: ${p?.name} · ${reel.format}\n${reel.hunt_stage ? `Ступень Ханта: ${reel.hunt_stage} (${HUNT_HINTS[reel.hunt_stage]})` : "Ступень: определи сам, исходя из площадки"}\n${existingTopics ? `Уже снятые темы (не повторяться): ${existingTopics}` : ""}\n${lead ? `Лид-магнит: ${lead.name} (${lead.link})` : ""}\n\nЕсли темы нет — задай МАКСИМУМ 1 вопрос за раз (не больше 2 за сессию): что происходит в жизни/бизнесе сейчас / какой вопрос чаще всего задают клиенты / что раздражает в нише.\n\nЕсли тема есть:\n— Предложи 2-3 угла подачи (формулы: факт+эмоция, статистика+последствие, разрушение мифа/контраст "думают VS на самом деле")\n— Проверь по формуле виральности: контроверсивность, провокативность, любопытство, полярность, ёмкость, painful, общий враг, волшебная таблетка. Если идея слабая — сразу скажи, что усилить, не спрашивай "что делать"\n— Спроси про личную историю/кейс. Если боль абстрактная — предложи конкретную бытовую деталь и переверни в хук: боль → хук\n— Учти тон площадки: Threads — самая резкая провокация; Instagram/TikTok — мягче, через наблюдение; Telegram — экспертно, без провокации ради провокации\n— Обоснуй, зачем снимать для воронки\n\nНе выдумывай факты. Контроверсия — про мнение, не про ложь. "Общий враг" — система/привычка/миф, не человек.\n\nЕсли предлагаешь тему — начни строку с ТЕМА:\nОтвечай кратко, по делу, на русском.`;
 
     const newChat = [...(reel.idea_chat || []), { role: "user", content: msg }];
     onUpdate({ idea_chat: newChat });
@@ -730,7 +730,7 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance, onScriptReadyForReels 
     if (profile.tov) ctx += `=== TOV ===\n${profile.tov.substring(0, 350)}\n\n`;
     (profile.materials || []).filter(m => m.use?.script).forEach(m => { ctx += `=== ${m.name.toUpperCase()} ===\n${m.text.substring(0, 300)}\n\n`; });
 
-    const system = `Ты — Сценарист для ${p?.name} (${reel.format}).\n\n${ctx}\nТема: ${reel.topic}\n${reel.hunt_stage ? `Ступень Ханта: ${reel.hunt_stage} — ${HUNT_HINTS[reel.hunt_stage]}` : ""}\n${lead ? `Лид-магнит: ${lead.name} (${lead.link})` : ""}\n${finalScript ? `Текущий сценарий:\n${finalScript}` : ""}\n\nСтруктура: хук (3 сек) / середина / вывод / CTA. Длина 30-60 сек речи.\nПравила:\n— Пиши в голосе автора (TOV)\n— Хук останавливает скролл\n— Никакого официоза\n— Новый сценарий — начни с СЦЕНАРИЙ:\n— Хуки — начни с ХУКИ: и перечисли\nОтвечай на русском.`;
+    const system = `Ты — Сценарист для ${p?.name} (${reel.format}).\n\n${ctx}\nТема: ${reel.topic}\n${reel.hunt_stage ? `Ступень Ханта: ${reel.hunt_stage} — ${HUNT_HINTS[reel.hunt_stage]}` : ""}\n${lead ? `Лид-магнит: ${lead.name} (${lead.link})` : ""}\n${finalScript ? `Текущий сценарий:\n${finalScript}` : ""}\n\nСтруктура:\n— хук (3 сек, до 12 слов): шок-факт/цифра, незаконченная мысль, личное признание, вопрос в боль, спор с распространённым мнением\n— середина: было плохо (конкретная деталь, не абстракция) → перелом (что произошло, какое решение принято) → стало так (результат через факт/деталь, без "и тогда я поняла, что...")\n— вывод → CTA. Тон CTA зависит от ступени Ханта: 1-2 — мягко (сохранить/подписаться, без продажи), 3 — интерес к методу (узнать больше, следующий шаг), 4-5 — прямой оффер с конкретикой, что и как получить\nДлина 30-60 сек речи.\n\nТон под площадку: Threads — резче, самостоятельная спорная мысль; Instagram/TikTok — мягче, через наблюдение; Telegram — экспертно, без провокации ради провокации.\n\nПравила:\n— Пиши в голосе автора (TOV)\n— Хук останавливает скролл\n— Никакого официоза, канцеляризмов, штампов ("важно понимать", "в современном мире")\n— Не больше 2 метафор на весь текст\n— Каждый раз, когда даёшь готовый текст сценария (новый или отредактированную правку) — выводи его целиком после СЦЕНАРИЙ:. Если просят только хуки — выводи только ХУКИ:, без повторного СЦЕНАРИЙ:\n— Хуки — начни с ХУКИ:, каждый хук отдельной строкой, минимум 2 варианта\nОтвечай на русском.`;
 
     const newChat = [...(reel.script_chat || []), { role: "user", content: msg }];
     onUpdate({ script_chat: newChat });
@@ -852,7 +852,7 @@ function CopyStep({ reel, profile, onUpdate, autoGenerate, onAutoGenerateHandled
     const lead = getLead();
     const key = reel.platform;
     const platInstr = (profile.platInstr || DEFAULT_PLAT_INSTR)[key] || DEFAULT_PLAT_INSTR[key] || "";
-    const system = `Ты — Копирайтер. TOV: ${profile.tov?.substring(0, 250) || ""}. Инструкция площадки ${PLATFORMS[key]?.name}: ${platInstr}. Отвечай JSON без текста.`;
+    const system = `Ты — Копирайтер. TOV: ${profile.tov?.substring(0, 250) || ""}. Инструкция площадки ${PLATFORMS[key]?.name}: ${platInstr}.\n${reel.hunt_stage ? `Ступень Ханта: ${reel.hunt_stage} — тон CTA: 1-2 мягкий (сохранить/подписаться), 3 интерес к методу, 4-5 прямой оффер с конкретикой.` : ""}\n${key === "tt" ? "overlay — короткий текст НА видео (6-8 слов), caption — развёрнутый текст под видео." : ""}${key === "th" ? "Ссылку клади в link_comment, не в text — так принято в Threads." : ""}\nПолезность пиши конкретно, без слов "полезно"/"качественный"/"уникальный" без опоры на факт. CTA — до 15 слов, без давления, на основе реальной пользы лид-магнита. Без канцеляризмов и конструкций "не X, а Y".\nОтвечай JSON без текста.`;
     const fmts = { ig: '{"caption":"...","cta":"..."}', yt: '{"title":"...","description":"...","tags":["..."]}', tg: '{"caption":"..."}', tt: '{"overlay":"...","caption":"..."}', th: '{"text":"...","link_comment":"..."}', vk: '{"caption":"..."}' };
     try {
       const raw = await callAPI([{ role: "user", content: `Напиши описание для ${PLATFORMS[key]?.name}.\n\nСценарий: ${script}\nЗаметки: ${reel.notes || "нет"}\n${lead ? `Лид-магнит: ${lead.name} · ${lead.link}` : ""}\n\nСтруктура:\n1. Описание о чём ролик\n2. Полезность\n3. Лид-магнит + CTA\n\nJSON: ${fmts[key]}` }], system, 600);
@@ -873,7 +873,7 @@ function CopyStep({ reel, profile, onUpdate, autoGenerate, onAutoGenerateHandled
     setLoading(true);
     const lead = getLead();
     const instrBlock = Object.entries(profile.platInstr || DEFAULT_PLAT_INSTR).map(([k, v]) => `${PLATFORMS[k]?.name}: ${v.substring(0, 120)}`).join("\n\n");
-    const system = `Ты — Копирайтер. TOV: ${profile.tov?.substring(0, 250) || ""}.\nИнструкции:\n${instrBlock}. Отвечай JSON.`;
+    const system = `Ты — Копирайтер. TOV: ${profile.tov?.substring(0, 250) || ""}.\nИнструкции:\n${instrBlock}.\n${reel.hunt_stage ? `Ступень Ханта: ${reel.hunt_stage} — тон CTA: 1-2 мягкий, 3 интерес к методу, 4-5 прямой оффер.` : ""}\nДля TikTok (tt): overlay — короткий текст НА видео (6-8 слов), caption — текст под видео. Для Threads (th): ссылку клади в link_comment, не в text.\nПолезность — конкретно, без общих слов без опоры на факт. CTA — до 15 слов, без давления. Без канцеляризмов и штампов "и вот почему"/"но есть нюанс".\nОтвечай JSON.`;
     try {
       const raw = await callAPI([{ role: "user", content: `Адаптируй под все площадки.\nСценарий: ${script}\nЗаметки: ${reel.notes || "нет"}\n${lead ? `Лид-магнит: ${lead.name} · ${lead.link}` : ""}\n\nJSON:\n{"ig":{"caption":"...","cta":"..."},"yt":{"title":"...","description":"...","tags":["..."]},"tg":{"caption":"..."},"tt":{"overlay":"...","caption":"..."},"th":{"text":"...","link_comment":"..."},"vk":{"caption":"..."}}\n\nКаждая: описание / полезность / лид-магнит + CTA.` }], system, 1800);
       const parsed = parseJSON(raw);
@@ -886,10 +886,10 @@ function CopyStep({ reel, profile, onUpdate, autoGenerate, onAutoGenerateHandled
     setLoading(true);
     const lead = getLead();
     const platInstr = (profile.platInstr || DEFAULT_PLAT_INSTR)[key] || DEFAULT_PLAT_INSTR[key] || "";
-    const system = `Ты — Копирайтер для ${PLATFORMS[key]?.name}. TOV: ${profile.tov?.substring(0, 200) || ""}. Инструкция: ${platInstr}. Отвечай JSON.`;
+    const system = `Ты — Копирайтер для ${PLATFORMS[key]?.name}. TOV: ${profile.tov?.substring(0, 200) || ""}. Инструкция: ${platInstr}.\n${reel.hunt_stage ? `Ступень Ханта: ${reel.hunt_stage} — тон CTA: 1-2 мягкий, 3 интерес к методу, 4-5 прямой оффер.` : ""}\n${key === "tt" ? "overlay — короткий текст НА видео (6-8 слов), caption — текст под видео." : ""}${key === "th" ? "Ссылку клади в link_comment, не в text." : ""}\nКонкретная польза, CTA до 15 слов без давления, без канцеляризмов.\nОтвечай JSON.`;
     const fmts = { ig: '{"caption":"...","cta":"..."}', yt: '{"title":"...","description":"...","tags":["..."]}', tg: '{"caption":"..."}', tt: '{"overlay":"...","caption":"..."}', th: '{"text":"...","link_comment":"..."}', vk: '{"caption":"..."}' };
     try {
-      const raw = await callAPI([{ role: "user", content: `Текст для ${PLATFORMS[key]?.name}.\nСценарий: ${script}\n${lead ? `Лид-магнит: ${lead.name} · ${lead.link}` : ""}\nJSON: ${fmts[key]}` }], system, 500);
+      const raw = await callAPI([{ role: "user", content: `Текст для ${PLATFORMS[key]?.name}.\nСценарий: ${script}\n${lead ? `Лид-магнит: ${lead.name} · ${lead.link}` : ""}\n\nСтруктура:\n1. Описание о чём ролик\n2. Полезность\n3. Лид-магнит + CTA\n\nJSON: ${fmts[key]}` }], system, 500);
       const parsed = parseJSON(raw);
       onUpdate({ copy: { ...(reel.copy || {}), [key]: parsed } });
     } catch (e) { alert("Ошибка: " + e.message); }
