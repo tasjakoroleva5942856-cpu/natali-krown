@@ -160,7 +160,7 @@ function makeReel({ platform, format, hunt = 0, topic = "" }) {
     created_at: new Date().toISOString(),
     platform, format, hunt_stage: hunt,
     lead_magnet_idx: null,
-    topic, status: "idea",
+    topic, status: "idea", agreed_angle: null,
     idea_chat: [], script_chat: [], script_versions: [],
     selected_script: -1, hooks: [], selected_hook: 0,
     copy: {}, notes: "", reactions: "", publish_date: null,
@@ -636,6 +636,79 @@ function ProfilePanel({ profile, apiKey, setApiKey, onSave }) {
 }
 
 // ── CONTENT PLAN ──
+function buildPlanParserSystem() {
+  return `Ты — парсер контент-планов. Тебе дан текст документа с готовым контент-планом пользователя (даты и/или темы, возможно с платформами и заметками).
+
+ЗАДАЧА:
+Преобразуй его в JSON-массив в следующем формате, сохраняя порядок:
+{"day": <номер по порядку или дата, если явно указана>, "platform": "<если платформа указана в документе — она; если нет — null>", "topic": "<тема, как в документе, без искажений>", "stage": <оцени этап Лестницы Ханта 1-5 по формулировке темы; если неочевидно — 2>, "опора": "из документа пользователя"}
+
+ПРАВИЛА:
+- Не выдумывай темы, которых нет в документе.
+- Если тем меньше или больше 30 — верни столько, сколько реально есть, не дополняй и не обрезай.
+- Если платформа не указана явно — верни null, не угадывай.
+
+ФОРМАТ ОТВЕТА: только валидный JSON-массив, без пояснений и markdown.`;
+}
+
+function UploadPlanModal({ onClose, onParsed }) {
+  const [text, setText] = useState("");
+  const [fileName, setFileName] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [rawReply, setRawReply] = useState("");
+
+  const handleFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFileName(file.name);
+    setText(await file.text());
+  };
+
+  const parse = async () => {
+    if (!text.trim()) return;
+    setLoading(true);
+    setError("");
+    setRawReply("");
+    let raw = "";
+    try {
+      raw = await callAPI([{ role: "user", content: text }], buildPlanParserSystem(), 8000);
+      if (!raw) throw new Error("Агент вернул пустой ответ. Попробуй ещё раз.");
+      const rows = parseJSONArray(raw);
+      onParsed(rows);
+    } catch (e) {
+      setError(e.message || "Ошибка запроса");
+      setRawReply(raw);
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ ...s.modal, maxWidth: 520 }}>
+        <button onClick={onClose} style={{ position: "absolute", top: 12, right: 12, background: COLORS.cream, border: `1.5px solid ${COLORS.brd}`, borderRadius: 6, width: 28, height: 28, cursor: "pointer", fontSize: 12, color: COLORS.brownS, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+        <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 6 }}>Загрузить свой план</div>
+        <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 12 }}>Вставь текст плана или загрузи файл — формат любой: список дат и тем, таблица, просто перечисление.</div>
+        <div style={{ marginBottom: 10 }}>
+          <input type="file" accept=".txt,.md,text/plain" onChange={handleFile} style={{ fontSize: 11 }} />
+          {fileName && <div style={{ fontSize: 10, color: COLORS.brownS, marginTop: 4 }}>Файл: {fileName}</div>}
+        </div>
+        <textarea value={text} onChange={e => setText(e.target.value)} placeholder="Или вставь текст плана сюда..." rows={8} style={{ ...s.field, minHeight: 140, marginBottom: 10 }} />
+        {loading && <div style={{ height: 3, background: COLORS.brd, borderRadius: 2, overflow: "hidden", marginBottom: 10 }}><div style={{ height: "100%", background: `linear-gradient(90deg,${COLORS.rose},#F472B6)`, animation: "lp 1.6s ease-in-out infinite" }} /></div>}
+        {error && (
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 11, color: "#DC2626", marginBottom: 6 }}>{error}</div>
+            {rawReply && <div style={{ fontSize: 10, color: COLORS.brownS, background: COLORS.cream, border: `1.5px solid ${COLORS.brd}`, borderRadius: 8, padding: 8, maxHeight: 120, overflowY: "auto", whiteSpace: "pre-wrap" }}>{rawReply}</div>}
+          </div>
+        )}
+        <button style={{ ...s.btnRose, width: "100%", opacity: (text.trim() && !loading) ? 1 : .5 }} disabled={!text.trim() || loading} onClick={parse}>
+          {loading ? "Разбираю..." : "Разобрать и загрузить план"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function buildPlanSystem(typeLabel, fullDoc, platformNames) {
   return `Ты — контент-стратег, создающий план публикаций на 30 дней на основе методики "Лестница Ханта" (5 этапов осознанности: 1 — не знает о проблеме, 2 — знает о проблеме, не ищет решение, 3 — ищет и сравнивает решения, 4 — выбирает конкретный продукт, 5 — уже клиент/адвокат).
 
@@ -696,8 +769,24 @@ function PlanTab({ profile, onUpdateProfile, onWritePost }) {
   const [error, setError] = useState("");
   const [rawReply, setRawReply] = useState("");
   const [showConfirmRegen, setShowConfirmRegen] = useState(false);
+  const [showUpload, setShowUpload] = useState(false);
 
   const togglePlatform = (key) => setSelectedPlatforms(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+
+  const handleUploaded = (rows) => {
+    const nameToKey = Object.fromEntries(Object.entries(PLATFORMS).map(([key, p]) => [p.name, key]));
+    const items = rows.map((it, i) => ({
+      day: Number(it.day) || i + 1,
+      platform: nameToKey[it.platform] || Object.keys(PLATFORMS)[0],
+      topic: it.topic || "",
+      stage: Math.min(5, Math.max(1, Number(it.stage) || 2)),
+      anchor: it["опора"] || it.opora || it.anchor || "из документа пользователя",
+    }));
+    const platforms = [...new Set(items.map(it => it.platform))];
+    setSelectedPlatforms(platforms);
+    onUpdateProfile({ contentPlan: { platforms, items, generatedAt: new Date().toISOString(), source: "upload" } });
+    setShowUpload(false);
+  };
 
   const generate = async () => {
     if (selectedPlatforms.length === 0) return;
@@ -737,7 +826,7 @@ function PlanTab({ profile, onUpdateProfile, onWritePost }) {
   return (
     <div style={s.panel}>
       <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 2 }}>Контент-план на месяц</div>
-      <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 14 }}>30 тем на месяц вперёд для ниши «{profile.name}», с учётом ступеней Лестницы Ханта</div>
+      <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 14 }}>Темы на месяц вперёд для ниши «{profile.name}», с учётом ступеней Лестницы Ханта</div>
 
       <div style={s.card}>
         <span style={s.label}>Площадки</span>
@@ -756,14 +845,19 @@ function PlanTab({ profile, onUpdateProfile, onWritePost }) {
             {rawReply && <div style={{ fontSize: 10, color: COLORS.brownS, background: COLORS.cream, border: `1.5px solid ${COLORS.brd}`, borderRadius: 8, padding: 8, maxHeight: 120, overflowY: "auto", whiteSpace: "pre-wrap" }}>{rawReply}</div>}
           </div>
         )}
-        <button style={{ ...s.btnRose, marginTop: 12, opacity: (selectedPlatforms.length && !loading) ? 1 : .4 }} disabled={!selectedPlatforms.length || loading} onClick={() => plan ? setShowConfirmRegen(true) : generate()}>
-          {loading ? "Генерирую..." : plan ? "🔄 Перегенерировать план" : "✦ Сгенерировать план"}
-        </button>
+        <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginTop: 12 }}>
+          <button style={{ ...s.btnRose, opacity: (selectedPlatforms.length && !loading) ? 1 : .4 }} disabled={!selectedPlatforms.length || loading} onClick={() => plan ? setShowConfirmRegen(true) : generate()}>
+            {loading ? "Генерирую..." : plan ? "🔄 Перегенерировать план" : "✦ Сгенерировать план"}
+          </button>
+          <button style={s.btnOutline} onClick={() => setShowUpload(true)}>📄 Загрузить свой план</button>
+        </div>
       </div>
+
+      {showUpload && <UploadPlanModal onClose={() => setShowUpload(false)} onParsed={handleUploaded} />}
 
       {plan && (
         <div style={{ marginTop: 14 }}>
-          <div style={{ fontSize: 10, color: COLORS.brownS, marginBottom: 8 }}>Сгенерирован {new Date(plan.generatedAt).toLocaleDateString("ru")} · {plan.items.length} тем · тип профиля: {profile.profileType === "interview" ? "по интервью" : "по документу воркшопа"}</div>
+          <div style={{ fontSize: 10, color: COLORS.brownS, marginBottom: 8 }}>{plan.source === "upload" ? "Загружен" : "Сгенерирован"} {new Date(plan.generatedAt).toLocaleDateString("ru")} · {plan.items.length} тем{plan.source !== "upload" ? ` · тип профиля: ${profile.profileType === "interview" ? "по интервью" : "по документу воркшопа"}` : ""}</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {plan.items.map((item, i) => (
               <PlanRow key={i} item={item} onChange={(changes) => updatePlanItem(i, changes)} onWritePost={() => onWritePost(item)} />
@@ -1125,14 +1219,13 @@ function CardModal({ reel, profile, reels, onUpdate, onDelete }) {
 function IdeaStep({ reel, profile, reels, onUpdate, onAdvance }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [handoffLoading, setHandoffLoading] = useState(false);
+  const [handoffError, setHandoffError] = useState("");
   const chatRef = useRef(null);
 
   useEffect(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight; }, [reel.idea_chat]);
 
-  const send = async (msg) => {
-    if (!msg.trim()) return;
-    setInput("");
-    setLoading(true);
+  const buildSystem = () => {
     const existingTopics = reels.filter(x => x.id !== reel.id && x.topic).map(x => x.topic).join(", ");
     const lead = reel.lead_magnet_idx != null ? profile.leads?.[reel.lead_magnet_idx] : null;
     const p = PLATFORMS[reel.platform];
@@ -1143,12 +1236,18 @@ function IdeaStep({ reel, profile, reels, onUpdate, onAdvance }) {
     if (profile.memory) ctx += `=== ПАТТЕРНЫ ===\n${profile.memory.substring(0, 200)}\n\n`;
     (profile.materials || []).filter(m => m.use?.idea).forEach(m => { ctx += `=== ${m.name.toUpperCase()} ===\n${m.text.substring(0, 300)}\n\n`; });
 
-    const system = `Ты — Идеолог, стратег по вирусному контенту. Тон — честный и по делу: не хвалишь идею ради вежливости, а сразу называешь сильные и слабые стороны.\n\n${ctx}\nПлощадка: ${p?.name} · ${reel.format}\n${reel.hunt_stage ? `Ступень Ханта: ${reel.hunt_stage} (${HUNT_HINTS[reel.hunt_stage]})` : "Ступень: определи сам, исходя из площадки"}\n${existingTopics ? `Уже снятые темы (не повторяться): ${existingTopics}` : ""}\n${lead ? `Лид-магнит: ${lead.name} (${lead.link})` : ""}\n\nЕсли темы нет — задай МАКСИМУМ 1 вопрос за раз (не больше 2 за сессию): что происходит в жизни/бизнесе сейчас / какой вопрос чаще всего задают клиенты / что раздражает в нише.\n\nЕсли тема есть:\n— Предложи 2-3 угла подачи (формулы: факт+эмоция, статистика+последствие, разрушение мифа/контраст "думают VS на самом деле")\n— Проверь по формуле виральности: контроверсивность, провокативность, любопытство, полярность, ёмкость, painful, общий враг, волшебная таблетка. Если идея слабая — сразу скажи, что усилить, не спрашивай "что делать"\n— Спроси про личную историю/кейс. Если боль абстрактная — предложи конкретную бытовую деталь и переверни в хук: боль → хук\n— Учти тон площадки: Threads — самая резкая провокация; Instagram/TikTok — мягче, через наблюдение; Telegram — экспертно, без провокации ради провокации\n— Обоснуй, зачем снимать для воронки\n\nНе выдумывай факты. Контроверсия — про мнение, не про ложь. "Общий враг" — система/привычка/миф, не человек.\n\nЕсли предлагаешь НЕСКОЛЬКО вариантов темы — оформляй их не строкой "ТЕМА:", а просто заголовками (например "Вариант 1: ..."), чтобы не путать с финальным выбором.\nСтрокой "ТЕМА: ..." начинай только когда пользователь явно выбрал или согласовал ОДНУ конкретную тему — в этой строке должна быть именно она, без номера.\nОтвечай кратко, по делу, на русском.`;
+    return `Ты — Идеолог, стратег по вирусному контенту. Тон — честный и по делу: не хвалишь идею ради вежливости, а сразу называешь сильные и слабые стороны.\n\n${ctx}\nПлощадка: ${p?.name} · ${reel.format}\n${reel.hunt_stage ? `Ступень Ханта: ${reel.hunt_stage} (${HUNT_HINTS[reel.hunt_stage]})` : "Ступень: определи сам, исходя из площадки"}\n${existingTopics ? `Уже снятые темы (не повторяться): ${existingTopics}` : ""}\n${lead ? `Лид-магнит: ${lead.name} (${lead.link})` : ""}\n\nЕсли темы нет — задай МАКСИМУМ 1 вопрос за раз (не больше 2 за сессию): что происходит в жизни/бизнесе сейчас / какой вопрос чаще всего задают клиенты / что раздражает в нише.\n\nЕсли тема есть:\n— Предложи 2-3 угла подачи (формулы: факт+эмоция, статистика+последствие, разрушение мифа/контраст "думают VS на самом деле")\n— Проверь по формуле виральности: контроверсивность, провокативность, любопытство, полярность, ёмкость, painful, общий враг, волшебная таблетка. Если идея слабая — сразу скажи, что усилить, не спрашивай "что делать"\n— Спроси про личную историю/кейс. Если боль абстрактная — предложи конкретную бытовую деталь и переверни в хук: боль → хук\n— Учти тон площадки: Threads — самая резкая провокация; Instagram/TikTok — мягче, через наблюдение; Telegram — экспертно, без провокации ради провокации\n— Обоснуй, зачем снимать для воронки\n\nНе выдумывай факты. Контроверсия — про мнение, не про ложь. "Общий враг" — система/привычка/миф, не человек.\n\nЕсли предлагаешь НЕСКОЛЬКО вариантов темы — оформляй их не строкой "ТЕМА:", а просто заголовками (например "Вариант 1: ..."), чтобы не путать с финальным выбором.\nСтрокой "ТЕМА: ..." начинай только когда пользователь явно выбрал или согласовал ОДНУ конкретную тему — в этой строке должна быть именно она, без номера.\n\nЕсли пользователь готов перейти к сценаристу (получено служебное сообщение о переходе), заверши диалог итоговым блоком СТРОГО в этом формате, без лишнего текста до или после:\n\n###ANGLE_START###\nУГОЛ: [номер и краткое название выбранного угла]\nОБОСНОВАНИЕ: [1-2 предложения, почему этот угол работает для этой аудитории/этапа]\nХУК: [конкретная фраза-зацепка, если она обсуждалась]\n###ANGLE_END###\n\nОтвечай кратко, по делу, на русском.`;
+  };
 
+  const send = async (msg) => {
+    if (!msg.trim()) return;
+    setInput("");
+    setLoading(true);
+    const system = buildSystem();
     const newChat = [...(reel.idea_chat || []), { role: "user", content: msg }];
     onUpdate({ idea_chat: newChat });
     try {
-      const messages = newChat.slice(-6).map(m => ({ role: m.role, content: m.content }));
+      const messages = newChat.filter(m => m.role !== "note").slice(-6).map(m => ({ role: m.role, content: m.content }));
       const reply = await callAPI(messages, system, 1600);
       const updatedChat = [...newChat, { role: "assistant", content: reply }];
       let updates = { idea_chat: updatedChat };
@@ -1166,6 +1265,33 @@ function IdeaStep({ reel, profile, reels, onUpdate, onAdvance }) {
     setLoading(false);
   };
 
+  const handoffToScript = async () => {
+    setHandoffLoading(true);
+    setHandoffError("");
+    const system = buildSystem();
+    const baseChat = (reel.idea_chat || []).filter(m => m.role !== "note");
+    try {
+      const messages = [...baseChat.slice(-6).map(m => ({ role: m.role, content: m.content })), { role: "user", content: "Пользователь готов перейти к сценаристу. Сформулируй итог обсуждения строго в формате ниже." }];
+      const reply = await callAPI(messages, system, 500);
+      const m = reply.match(/###ANGLE_START###([\s\S]+?)###ANGLE_END###/);
+      if (!m) {
+        setHandoffError("Не удалось получить итог от Идеолога. Можно попробовать снова или перейти без согласованного угла.");
+        setHandoffLoading(false);
+        return;
+      }
+      const block = m[1].trim();
+      const get = (label) => { const mm = block.match(new RegExp(label + ":\\s*(.+)")); return mm ? mm[1].trim() : ""; };
+      const angle = { raw: block, angle: get("УГОЛ"), rationale: get("ОБОСНОВАНИЕ"), hook: get("ХУК") };
+      onUpdate({ idea_chat: [...(reel.idea_chat || []), { role: "note", content: "✓ Угол согласован, передаю сценаристу" }], agreed_angle: angle });
+      onAdvance();
+    } catch (e) {
+      setHandoffError(e.message || "Ошибка запроса");
+    }
+    setHandoffLoading(false);
+  };
+
+  const skipHandoff = () => { setHandoffError(""); onAdvance(); };
+
   const topics = reels.filter(x => x.id !== reel.id && x.topic).slice(0, 4).map(x => x.topic).join(", ");
 
   return (
@@ -1179,8 +1305,12 @@ function IdeaStep({ reel, profile, reels, onUpdate, onAdvance }) {
       )}
       <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 8 }}>{reel.topic ? "Идеолог уточнит угол и обоснует зачем снимать этот ролик" : "Нет темы? Агент поможет придумать — просто отправь сообщение"}</div>
       <div ref={chatRef} style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 240, overflowY: "auto", marginBottom: 8 }}>
-        {(reel.idea_chat || []).map((m, i) => <div key={i} style={s.chatMsg(m.role)}><MsgText text={m.content} /></div>)}
+        {(reel.idea_chat || []).map((m, i) => m.role === "note"
+          ? <div key={i} style={{ textAlign: "center", fontSize: 10, color: COLORS.brownS, opacity: .75, fontStyle: "italic", margin: "2px 0" }}>{m.content}</div>
+          : <div key={i} style={s.chatMsg(m.role)}><MsgText text={m.content} /></div>
+        )}
         {loading && <div style={{ ...s.chatMsg("assistant"), opacity: .6, fontStyle: "italic" }}>Думаю...</div>}
+        {handoffLoading && <div style={{ textAlign: "center", fontSize: 10, color: COLORS.brownS, opacity: .75, fontStyle: "italic", margin: "2px 0" }}>→ Готовим передачу сценаристу…</div>}
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 7 }}>
         {["Придумай тему с нуля", "Какой угол для ЦА?", "Проверь воронку", "5 тем на месяц"].map(q => (
@@ -1192,8 +1322,14 @@ function IdeaStep({ reel, profile, reels, onUpdate, onAdvance }) {
         <button onClick={() => send(input)} disabled={loading} style={{ ...s.btnRose, width: 36, height: 36, padding: 0, flexShrink: 0, opacity: loading ? .4 : 1 }}>→</button>
       </div>
       <div style={{ height: 1, background: COLORS.brd, margin: "14px 0 10px" }} />
-      <button onClick={onAdvance} disabled={!reel.topic} style={{ ...s.btnRose, width: "100%", opacity: reel.topic ? 1 : .4, cursor: reel.topic ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-        Идея согласована — дальше к Сценаристу →
+      {handoffError && (
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ fontSize: 11, color: "#DC2626", marginBottom: 6 }}>{handoffError}</div>
+          <button onClick={skipHandoff} style={{ ...s.btnOutline, ...s.btnSm }}>Перейти без согласованного угла →</button>
+        </div>
+      )}
+      <button onClick={handoffToScript} disabled={!reel.topic || handoffLoading} style={{ ...s.btnRose, width: "100%", opacity: (reel.topic && !handoffLoading) ? 1 : .4, cursor: (reel.topic && !handoffLoading) ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+        {handoffLoading ? "Согласовываю угол..." : "Идея согласована — дальше к Сценаристу →"}
       </button>
     </div>
   );
@@ -1220,7 +1356,8 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance, onScriptReadyForReels 
     if (profile.tov) ctx += `=== TOV ===\n${profile.tov.substring(0, 350)}\n\n`;
     (profile.materials || []).filter(m => m.use?.script).forEach(m => { ctx += `=== ${m.name.toUpperCase()} ===\n${m.text.substring(0, 300)}\n\n`; });
 
-    const system = `Ты — Сценарист для ${p?.name} (${reel.format}).\n\n${ctx}\nТема: ${reel.topic}\n${reel.hunt_stage ? `Ступень Ханта: ${reel.hunt_stage} — ${HUNT_HINTS[reel.hunt_stage]}` : ""}\n${lead ? `Лид-магнит: ${lead.name} (${lead.link})` : ""}\n${finalScript ? `Текущий сценарий:\n${finalScript}` : ""}\n\nСтруктура:\n— хук (3 сек, до 12 слов): шок-факт/цифра, незаконченная мысль, личное признание, вопрос в боль, спор с распространённым мнением\n— середина: было плохо (конкретная деталь, не абстракция) → перелом (что произошло, какое решение принято) → стало так (результат через факт/деталь, без "и тогда я поняла, что...")\n— вывод → CTA. Тон CTA зависит от ступени Ханта: 1-2 — мягко (сохранить/подписаться, без продажи), 3 — интерес к методу (узнать больше, следующий шаг), 4-5 — прямой оффер с конкретикой, что и как получить\nДлина 30-60 сек речи.\n\nТон под площадку: Threads — резче, самостоятельная спорная мысль; Instagram/TikTok — мягче, через наблюдение; Telegram — экспертно, без провокации ради провокации.\n\nПравила:\n— Пиши в голосе автора (TOV)\n— Хук останавливает скролл\n— Никакого официоза, канцеляризмов, штампов ("важно понимать", "в современном мире")\n— Не больше 2 метафор на весь текст\n— Каждый раз, когда даёшь готовый текст сценария (новый или отредактированную правку) — выводи его целиком после СЦЕНАРИЙ:. Если просят только хуки — выводи только ХУКИ:, без повторного СЦЕНАРИЙ:\n— Хуки — начни с ХУКИ:, каждый хук отдельной строкой, минимум 2 варианта\nОтвечай на русском.`;
+    const inputBlock = `ВХОДНЫЕ ДАННЫЕ:\nТема из плана: ${reel.topic}\nПлощадка: ${p?.name}\nЭтап Ханта: ${reel.hunt_stage ? `${reel.hunt_stage} — ${HUNT_HINTS[reel.hunt_stage]}` : "не определён"}\n${reel.agreed_angle ? `Согласованный с идеологом угол (ПРИОРИТЕТНЫЙ источник — пиши строго по нему):\n${reel.agreed_angle.raw}\n\nЕсли согласованный угол противоречит теме из плана — следуй согласованному углу, тема из плана нужна только для общего контекста ниши.` : ""}`;
+    const system = `Ты — Сценарист для ${p?.name} (${reel.format}).\n\n${ctx}\n${inputBlock}\n${lead ? `Лид-магнит: ${lead.name} (${lead.link})` : ""}\n${finalScript ? `Текущий сценарий:\n${finalScript}` : ""}\n\nСтруктура:\n— хук (3 сек, до 12 слов): шок-факт/цифра, незаконченная мысль, личное признание, вопрос в боль, спор с распространённым мнением\n— середина: было плохо (конкретная деталь, не абстракция) → перелом (что произошло, какое решение принято) → стало так (результат через факт/деталь, без "и тогда я поняла, что...")\n— вывод → CTA. Тон CTA зависит от ступени Ханта: 1-2 — мягко (сохранить/подписаться, без продажи), 3 — интерес к методу (узнать больше, следующий шаг), 4-5 — прямой оффер с конкретикой, что и как получить\nДлина 30-60 сек речи.\n\nТон под площадку: Threads — резче, самостоятельная спорная мысль; Instagram/TikTok — мягче, через наблюдение; Telegram — экспертно, без провокации ради провокации.\n\nПравила:\n— Пиши в голосе автора (TOV)\n— Хук останавливает скролл\n— Никакого официоза, канцеляризмов, штампов ("важно понимать", "в современном мире")\n— Не больше 2 метафор на весь текст\n— Каждый раз, когда даёшь готовый текст сценария (новый или отредактированную правку) — выводи его целиком после СЦЕНАРИЙ:. Если просят только хуки — выводи только ХУКИ:, без повторного СЦЕНАРИЙ:\n— Хуки — начни с ХУКИ:, каждый хук отдельной строкой, минимум 2 варианта\nОтвечай на русском.`;
 
     const newChat = [...(reel.script_chat || []), { role: "user", content: msg }];
     onUpdate({ script_chat: newChat });
@@ -1259,6 +1396,13 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance, onScriptReadyForReels 
     <div>
       {!(reel.script_versions || []).length && (
         <div style={{ marginBottom: 14 }}>
+          {reel.agreed_angle && (
+            <div style={{ background: COLORS.purpleL, border: `1.5px solid #C4B5FD`, borderRadius: 9, padding: "9px 11px", marginBottom: 10, fontSize: 11, color: COLORS.purple, lineHeight: 1.5 }}>
+              <div style={{ fontWeight: 700, marginBottom: 3 }}>✓ Угол согласован с Идеологом</div>
+              {reel.agreed_angle.angle && <div><strong>Угол:</strong> {reel.agreed_angle.angle}</div>}
+              {reel.agreed_angle.hook && <div><strong>Хук:</strong> {reel.agreed_angle.hook}</div>}
+            </div>
+          )}
           <span style={s.label}>Идея (согласована на прошлом шаге — можно поправить)</span>
           <textarea style={{ ...s.field, minHeight: 60 }} rows={3} value={reel.topic || ""} onChange={e => onUpdate({ topic: e.target.value })} placeholder="Тема ролика..." />
           <button onClick={generateFromIdea} disabled={loading || !reel.topic?.trim()} style={{ ...s.btnRose, width: "100%", marginTop: 8, opacity: (loading || !reel.topic?.trim()) ? .5 : 1 }}>
