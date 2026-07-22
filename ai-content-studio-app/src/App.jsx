@@ -73,6 +73,24 @@ function parseJSON(raw) {
     throw new Error("Не удалось разобрать ответ");
   }
 }
+function parseJSONArray(raw) {
+  try { const v = JSON.parse(raw); if (Array.isArray(v)) return v; } catch { /* fall through */ }
+  const m = raw.match(/\[[\s\S]*\]/);
+  if (m) { const v = JSON.parse(m[0]); if (Array.isArray(v)) return v; }
+  throw new Error("Не удалось разобрать ответ агента");
+}
+// Full, untruncated niche document — used only for the once-a-month plan
+// call. Per-post generation elsewhere truncates profile fields to keep
+// frequent calls cheap; this call is rare enough that depth matters more.
+function buildFullNicheDocument(profile) {
+  let doc = "";
+  if (profile.ca) doc += `=== ЦЕЛЕВАЯ АУДИТОРИЯ ===\n${profile.ca}\n\n`;
+  if (profile.prod) doc += `=== ПРОДУКТЫ И ВОРОНКА ===\n${profile.prod}\n\n`;
+  if (profile.tov) doc += `=== ТОН И СТИЛЬ ===\n${profile.tov}\n\n`;
+  if (profile.memory) doc += `=== ПАТТЕРНЫ ===\n${profile.memory}\n\n`;
+  (profile.materials || []).forEach(m => { doc += `=== ${(m.name || "").toUpperCase()} ===\n${m.text}\n\n`; });
+  return doc.trim();
+}
 
 // ── LIGHTWEIGHT MARKDOWN (bold / italic / quotes / --- dividers) ──
 function renderInline(text, keyPrefix) {
@@ -129,9 +147,21 @@ function Badge({ bg, color, children }) {
   return <span style={s.badge(bg, color)}>{children}</span>;
 }
 
-const EMPTY_PROFILE_FIELDS = { ca: "", prod: "", tov: "", memory: "", leads: [], materials: [], platInstr: { ...DEFAULT_PLAT_INSTR }, huntStage: null };
+const EMPTY_PROFILE_FIELDS = { ca: "", prod: "", tov: "", memory: "", leads: [], materials: [], platInstr: { ...DEFAULT_PLAT_INSTR }, huntStage: null, profileType: "manual", contentPlan: null };
 function makeProfile(data) {
   return { id: "p-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: "Новая ниша", ...EMPTY_PROFILE_FIELDS, ...data, platInstr: { ...DEFAULT_PLAT_INSTR, ...(data.platInstr || {}) } };
+}
+function makeReel({ platform, format, hunt = 0, topic = "" }) {
+  return {
+    id: Date.now() + "-" + Math.random().toString(36).slice(2, 7),
+    created_at: new Date().toISOString(),
+    platform, format, hunt_stage: hunt,
+    lead_magnet_idx: null,
+    topic, status: "idea",
+    idea_chat: [], script_chat: [], script_versions: [],
+    selected_script: -1, hooks: [], selected_hook: 0,
+    copy: {}, notes: "", reactions: "", publish_date: null,
+  };
 }
 
 // ── MAIN APP ──
@@ -253,9 +283,9 @@ export default function App() {
           </div>
         </div>
         <div style={{ display: "flex", gap: 2 }}>
-          {["board", "profile"].map((t, i) => (
+          {["board", "plan", "profile"].map((t, i) => (
             <button key={t} onClick={() => setTab(t)} style={{ padding: "5px 12px", borderRadius: 7, fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", fontFamily: "inherit", background: tab === t ? COLORS.rose : "none", color: tab === t ? "#fff" : COLORS.brownS }}>
-              {t === "board" ? "◫ Доска" : "⚙ Профиль"}
+              {t === "board" ? "◫ Доска" : t === "plan" ? "📅 План" : "⚙ Профиль"}
             </button>
           ))}
         </div>
@@ -345,6 +375,21 @@ export default function App() {
         </div>
       )}
 
+      {/* PLAN */}
+      {tab === "plan" && (
+        <PlanTab
+          key={profile.id}
+          profile={profile}
+          onUpdateProfile={(p) => updateActiveProfile(p)}
+          onWritePost={(item) => {
+            const p = PLATFORMS[item.platform] || PLATFORMS.ig;
+            const reel = makeReel({ platform: item.platform, format: p.formats[0], hunt: item.stage, topic: item.topic });
+            setReels(prev => { const u = [reel, ...prev]; saveReels(u); return u; });
+            setCardId(reel.id);
+          }}
+        />
+      )}
+
       {/* PROFILE */}
       {tab === "profile" && (
         <ProfilePanel
@@ -358,13 +403,13 @@ export default function App() {
         <OnboardingChoice
           onClose={profiles.length > 0 ? () => setOnboarding(null) : null}
           onInterview={() => setOnboarding("interview")}
-          onManual={() => { createProfile({ name: "Моя ниша" }); setTab("profile"); }}
+          onManual={() => { createProfile({ name: "Моя ниша", profileType: "manual" }); setTab("profile"); }}
         />
       )}
       {onboarding === "interview" && (
         <InterviewWizard
           onCancel={() => setOnboarding("choice")}
-          onComplete={(data) => { createProfile(data); setTab("board"); }}
+          onComplete={(data) => { createProfile({ ...data, profileType: "interview" }); setTab("board"); }}
         />
       )}
 
@@ -587,6 +632,158 @@ function ProfilePanel({ profile, apiKey, setApiKey, onSave }) {
   );
 }
 
+// ── CONTENT PLAN ──
+function buildPlanSystem(typeLabel, fullDoc, platformNames) {
+  return `Ты — контент-стратег, создающий план публикаций на 30 дней на основе методики "Лестница Ханта" (5 этапов осознанности: 1 — не знает о проблеме, 2 — знает о проблеме, не ищет решение, 3 — ищет и сравнивает решения, 4 — выбирает конкретный продукт, 5 — уже клиент/адвокат).
+
+ВХОДНЫЕ ДАННЫЕ:
+Тип профиля: ${typeLabel}
+Бриф/документ ниши: ${fullDoc || "(пусто)"}
+Платформы клиента: ${platformNames}
+
+ПРАВИЛА ГЛУБИНЫ ПРОРАБОТКИ — САМОЕ ВАЖНОЕ:
+
+Если тип профиля — ДОКУМЕНТ_ВОРКШОПА:
+- В документе могут быть конкретные формулировки боли, возражения, фразы, которыми аудитория описывает свою проблему, реальные примеры/ситуации.
+- Каждая тема ДОЛЖНА опираться на конкретный, узнаваемый элемент из документа — не общую фразу вроде "боится не успеть", а именно то, что реально написано (например: "боится, что подписчики решат, будто она непрофессионал из-за ошибок в постах" — тема должна цеплять именно это, а не абстрактную "неуверенность").
+- Для каждой темы заполни поле "опора" — короткая цитата или прямая отсылка к конкретному месту документа, на которое опирается эта тема.
+- Если для конкретной темы в документе НЕТ подходящей конкретики — НЕ ВЫДУМЫВАЙ. Укажи "опора": "общая логика этапа" и сформулируй тему нейтральнее, без ложной конкретики.
+
+Если тип профиля — ИНТЕРВЬЮ:
+- Данных мало (несколько строк: ниша, аудитория, боль, тон, оффер). Работай строго с тем, что есть — не придумывай цитаты, ситуации или детали, которых нет во входных данных.
+- Поле "опора" в этом случае — "по краткому брифу", без цитат.
+
+ОБЩИЕ ПРАВИЛА:
+- Каждая тема — короткая формулировка (не сам пост, только суть, до 12 слов).
+- Распредели темы по всем указанным платформам примерно равномерно.
+- Распредели темы по этапам Ханта осмысленным циклом: не более 2 дней подряд один этап; за месяц — все 5 этапов несколько раз; ближе к середине-концу месяца можно немного чаще давать этапы 3-4.
+- Не повторяй тему дважды за 30 дней.
+- Избегай общих маркетинговых клише ("успех начинается с малого", "здоровье — это важно") — если тема не может быть конкретной из-за нехватки данных, пусть будет просто нейтральной, но не банальной.
+
+ФОРМАТ ОТВЕТА:
+Верни ТОЛЬКО валидный JSON-массив из 30 объектов, без markdown-разметки и пояснений, в точности такой структуры:
+[{"day": 1, "platform": "Telegram", "topic": "...", "stage": 2, "опора": "..."}, {"day": 2, "platform": "...", "topic": "...", "stage": 1, "опора": "..."}, ...]`;
+}
+
+function PlanRow({ item, onChange, onWritePost }) {
+  return (
+    <div style={{ background: COLORS.white, border: `1.5px solid ${COLORS.brd}`, borderRadius: 9, padding: "9px 11px", display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 10, fontWeight: 700, color: COLORS.brownS, minWidth: 44 }}>День {item.day}</span>
+        <select value={item.platform} onChange={e => onChange({ platform: e.target.value })} style={{ ...s.field, width: "auto", padding: "3px 7px", fontSize: 10 }}>
+          {Object.entries(PLATFORMS).map(([key, p]) => <option key={key} value={key}>{p.icon} {p.name}</option>)}
+        </select>
+        <select value={item.stage} onChange={e => onChange({ stage: Number(e.target.value) })} style={{ ...s.field, width: "auto", padding: "3px 7px", fontSize: 10, color: COLORS.rose, fontWeight: 700 }}>
+          {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>Ступень {n}</option>)}
+        </select>
+        <div style={{ marginLeft: "auto" }}>
+          <button onClick={onWritePost} style={{ ...s.btnOutline, ...s.btnSm }}>✍️ Написать пост</button>
+        </div>
+      </div>
+      <input value={item.topic} onChange={e => onChange({ topic: e.target.value })} style={{ ...s.field, fontWeight: 600 }} />
+      {item.anchor && <div style={{ fontSize: 10, color: COLORS.brownS, fontStyle: "italic" }}>Опора: {item.anchor}</div>}
+    </div>
+  );
+}
+
+function PlanTab({ profile, onUpdateProfile, onWritePost }) {
+  const plan = profile.contentPlan;
+  const [selectedPlatforms, setSelectedPlatforms] = useState(plan?.platforms || []);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [rawReply, setRawReply] = useState("");
+  const [showConfirmRegen, setShowConfirmRegen] = useState(false);
+
+  const togglePlatform = (key) => setSelectedPlatforms(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+
+  const generate = async () => {
+    if (selectedPlatforms.length === 0) return;
+    setLoading(true);
+    setError("");
+    setRawReply("");
+    const typeLabel = profile.profileType === "interview" ? "ИНТЕРВЬЮ" : "ДОКУМЕНТ_ВОРКШОПА";
+    const fullDoc = buildFullNicheDocument(profile);
+    const platformNames = selectedPlatforms.map(k => PLATFORMS[k].name).join(", ");
+    const system = buildPlanSystem(typeLabel, fullDoc, platformNames);
+    let raw = "";
+    try {
+      raw = await callAPI([{ role: "user", content: "Сформируй план на 30 дней." }], system, 4000);
+      const rows = parseJSONArray(raw);
+      const nameToKey = Object.fromEntries(Object.entries(PLATFORMS).map(([key, p]) => [p.name, key]));
+      const items = rows.slice(0, 30).map((it, i) => ({
+        day: Number(it.day) || i + 1,
+        platform: nameToKey[it.platform] || selectedPlatforms[i % selectedPlatforms.length],
+        topic: it.topic || "",
+        stage: Math.min(5, Math.max(1, Number(it.stage) || 1)),
+        anchor: it["опора"] || it.opora || it.anchor || "",
+      }));
+      onUpdateProfile({ contentPlan: { platforms: selectedPlatforms, items, generatedAt: new Date().toISOString() } });
+    } catch (e) {
+      setError(e.message || "Ошибка запроса");
+      setRawReply(raw);
+    }
+    setLoading(false);
+  };
+
+  const updatePlanItem = (i, changes) => {
+    const items = plan.items.map((it, idx) => idx === i ? { ...it, ...changes } : it);
+    onUpdateProfile({ contentPlan: { ...plan, items } });
+  };
+
+  return (
+    <div style={s.panel}>
+      <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 2 }}>Контент-план на месяц</div>
+      <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 14 }}>30 тем на месяц вперёд для ниши «{profile.name}», с учётом ступеней Лестницы Ханта</div>
+
+      <div style={s.card}>
+        <span style={s.label}>Площадки</span>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+          {Object.entries(PLATFORMS).map(([key, p]) => (
+            <label key={key} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 20, border: `1.5px solid ${selectedPlatforms.includes(key) ? COLORS.rose : COLORS.brd}`, background: selectedPlatforms.includes(key) ? COLORS.roseP : COLORS.cream, cursor: "pointer", fontSize: 11 }}>
+              <input type="checkbox" checked={selectedPlatforms.includes(key)} onChange={() => togglePlatform(key)} style={{ margin: 0 }} />
+              {p.icon} {p.name}
+            </label>
+          ))}
+        </div>
+        {loading && <div style={{ height: 3, background: COLORS.brd, borderRadius: 2, overflow: "hidden", margin: "12px 0" }}><div style={{ height: "100%", background: `linear-gradient(90deg,${COLORS.rose},#F472B6)`, animation: "lp 1.6s ease-in-out infinite" }} /></div>}
+        {error && (
+          <div style={{ marginTop: 10 }}>
+            <div style={{ fontSize: 11, color: "#DC2626", marginBottom: 6 }}>{error}</div>
+            {rawReply && <div style={{ fontSize: 10, color: COLORS.brownS, background: COLORS.cream, border: `1.5px solid ${COLORS.brd}`, borderRadius: 8, padding: 8, maxHeight: 120, overflowY: "auto", whiteSpace: "pre-wrap" }}>{rawReply}</div>}
+          </div>
+        )}
+        <button style={{ ...s.btnRose, marginTop: 12, opacity: (selectedPlatforms.length && !loading) ? 1 : .4 }} disabled={!selectedPlatforms.length || loading} onClick={() => plan ? setShowConfirmRegen(true) : generate()}>
+          {loading ? "Генерирую..." : plan ? "🔄 Перегенерировать план" : "✦ Сгенерировать план"}
+        </button>
+      </div>
+
+      {plan && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontSize: 10, color: COLORS.brownS, marginBottom: 8 }}>Сгенерирован {new Date(plan.generatedAt).toLocaleDateString("ru")} · {plan.items.length} тем · тип профиля: {profile.profileType === "interview" ? "по интервью" : "по документу воркшопа"}</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {plan.items.map((item, i) => (
+              <PlanRow key={i} item={item} onChange={(changes) => updatePlanItem(i, changes)} onWritePost={() => onWritePost(item)} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {showConfirmRegen && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(35,18,26,.5)", zIndex: 400, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: "#fff", borderRadius: 12, padding: 20, maxWidth: 300, width: "90%", textAlign: "center" }}>
+            <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 6 }}>Перегенерировать план?</div>
+            <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 16 }}>Текущий план на 30 дней будет заменён новым.</div>
+            <div style={{ display: "flex", gap: 7, justifyContent: "center" }}>
+              <button style={{ ...s.btnRose, background: "#DC2626" }} onClick={() => { setShowConfirmRegen(false); generate(); }}>Перегенерировать</button>
+              <button style={s.btnOutline} onClick={() => setShowConfirmRegen(false)}>Отмена</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── ONBOARDING: CHOICE ──
 function OnboardingChoice({ onClose, onInterview, onManual }) {
   return (
@@ -799,16 +996,7 @@ function NewCardModal({ profile, onClose, onCreate }) {
   const fmts = PLATFORMS[platform]?.formats || [];
 
   const create = () => {
-    const reel = {
-      id: Date.now() + "-" + Math.random().toString(36).slice(2, 7),
-      created_at: new Date().toISOString(),
-      platform, format, hunt_stage: hunt,
-      lead_magnet_idx: leadIdx !== "" ? parseInt(leadIdx) : null,
-      topic: topic || "", status: "idea",
-      idea_chat: [], script_chat: [], script_versions: [],
-      selected_script: -1, hooks: [], selected_hook: 0,
-      copy: {}, notes: "", reactions: "", publish_date: null,
-    };
+    const reel = { ...makeReel({ platform, format, hunt, topic }), lead_magnet_idx: leadIdx !== "" ? parseInt(leadIdx) : null };
     onCreate(reel);
   };
 
