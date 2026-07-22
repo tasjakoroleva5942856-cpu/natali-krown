@@ -653,6 +653,7 @@ function InterviewWizard({ onCancel, onComplete }) {
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
   const [editName, setEditName] = useState("");
+  const [rawReply, setRawReply] = useState("");
 
   const q = INTERVIEW_QUESTIONS[step];
   const answered = q ? (answers[q.key] || "").trim().length > 0 : false;
@@ -673,8 +674,15 @@ function InterviewWizard({ onCancel, onComplete }) {
     ];
     try {
       const reply = await callAPI(messages, INTERVIEWER_SYSTEM, 900);
-      const m = reply.match(/###PROFILE_START###([\s\S]+?)###PROFILE_END###/);
-      if (!m) throw new Error("Не удалось разобрать ответ агента. Попробуй ещё раз.");
+      // Be lenient: the model can wrap the block in code fences, use a
+      // different number of #, or (rarely) omit the closing marker.
+      const cleaned = reply.replace(/```[a-z]*\n?/gi, "");
+      let m = cleaned.match(/#{2,}\s*PROFILE_START\s*#{2,}([\s\S]+?)#{2,}\s*PROFILE_END\s*#{2,}/i);
+      if (!m) m = cleaned.match(/#{2,}\s*PROFILE_START\s*#{2,}([\s\S]+)/i);
+      if (!m) {
+        setRawReply(reply);
+        throw new Error("Не удалось разобрать ответ агента. Попробуй ещё раз.");
+      }
       const block = m[1];
       const get = (label) => { const mm = block.match(new RegExp(label + ":\\s*(.+)")); return mm ? mm[1].trim() : ""; };
       const niche = get("НИША");
@@ -683,6 +691,10 @@ function InterviewWizard({ onCancel, onComplete }) {
       const tone = get("ТОН");
       const offer = get("ОФФЕР");
       const huntStage = parseInt(get("ЭТАП_ХАНТА")) || null;
+      if (!niche && !audience && !tone) {
+        setRawReply(reply);
+        throw new Error("Агент ответил, но бриф пустой. Попробуй ещё раз.");
+      }
       const data = {
         ca: [audience, pain ? `Боль: ${pain}` : ""].filter(Boolean).join("\n"),
         prod: [niche, offer ? `Продвигаем сейчас: ${offer}` : ""].filter(Boolean).join("\n"),
@@ -739,8 +751,11 @@ function InterviewWizard({ onCancel, onComplete }) {
               <div style={{ fontSize: 12, color: COLORS.brownS }}>Собираю бриф на основе ответов...</div>
             </>}
             {error && (
-              <div>
-                <div style={{ fontSize: 12, color: "#DC2626", marginBottom: 14 }}>{error}</div>
+              <div style={{ textAlign: "left" }}>
+                <div style={{ fontSize: 12, color: "#DC2626", marginBottom: 10, textAlign: "center" }}>{error}</div>
+                {rawReply && (
+                  <div style={{ fontSize: 10, color: COLORS.brownS, background: COLORS.cream, border: `1.5px solid ${COLORS.brd}`, borderRadius: 8, padding: 9, marginBottom: 14, maxHeight: 140, overflowY: "auto", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{rawReply}</div>
+                )}
                 <div style={{ display: "flex", gap: 7, justifyContent: "center" }}>
                   <button style={s.btnOutline} onClick={() => setStep(3)}>← Назад к вопросам</button>
                   <button style={s.btnRose} onClick={runInterview}>Повторить</button>
