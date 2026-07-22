@@ -661,19 +661,14 @@ function InterviewWizard({ onCancel, onComplete }) {
   const runInterview = async () => {
     setLoading(true);
     setError("");
+    // A single explicit message (rather than a faked multi-turn transcript)
+    // so the model can't mistake this for a mid-interview turn and reply
+    // conversationally instead of emitting the final PROFILE block.
     const messages = [
-      { role: "user", content: "Начнём интервью." },
-      { role: "assistant", content: INTERVIEW_QUESTIONS[0].label },
-      { role: "user", content: answers.q1 },
-      { role: "assistant", content: "Кто твой клиент? (например: пол, возраст, сфера — можно одной строкой)" },
-      { role: "user", content: answers.q2 },
-      { role: "assistant", content: INTERVIEW_QUESTIONS[2].label },
-      { role: "user", content: answers.q3 },
-      { role: "assistant", content: INTERVIEW_QUESTIONS[3].label },
-      { role: "user", content: answers.q4 },
+      { role: "user", content: `Пользователь ответил на все 4 вопроса интервью:\n1. Чем ты занимаешься / что продаёшь? — ${answers.q1}\n2. Кто твой клиент? — ${answers.q2}\n3. Какой тон тебе ближе? — ${answers.q3}\n4. Что нужно продвигать через контент прямо сейчас? — ${answers.q4}\n\nЭто был последний, 4-й ответ. Сформируй финальный бриф строго по инструкции из системного промпта (блок ###PROFILE_START###...###PROFILE_END### и ничего похожего до/после кроме финальной дружелюбной фразы).` },
     ];
     try {
-      const reply = await callAPI(messages, INTERVIEWER_SYSTEM, 900);
+      const reply = await callAPI(messages, INTERVIEWER_SYSTEM, 1200);
       // Be lenient: the model can wrap the block in code fences, use a
       // different number of #, or (rarely) omit the closing marker.
       const cleaned = reply.replace(/```[a-z]*\n?/gi, "");
