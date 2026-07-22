@@ -64,7 +64,10 @@ async function callAPI(messages, system, maxTokens = 1000) {
   });
   const d = await r.json();
   if (d.error) throw new Error(d.error.message || "API ошибка");
-  return d.content?.[0]?.text || "";
+  // Don't assume content[0] is the text block — the response can include
+  // other block types (e.g. thinking) before it, which would silently
+  // return "" if we only ever looked at index 0.
+  return (d.content || []).filter(b => b && b.type === "text").map(b => b.text).join("");
 }
 function parseJSON(raw) {
   try { return JSON.parse(raw); } catch {
