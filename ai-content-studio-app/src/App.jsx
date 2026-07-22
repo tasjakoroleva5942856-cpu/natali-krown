@@ -1149,7 +1149,7 @@ function IdeaStep({ reel, profile, reels, onUpdate, onAdvance }) {
     onUpdate({ idea_chat: newChat });
     try {
       const messages = newChat.slice(-6).map(m => ({ role: m.role, content: m.content }));
-      const reply = await callAPI(messages, system, 800);
+      const reply = await callAPI(messages, system, 1600);
       const updatedChat = [...newChat, { role: "assistant", content: reply }];
       let updates = { idea_chat: updatedChat };
       if (!reel.topic) {
@@ -1224,7 +1224,7 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance, onScriptReadyForReels 
     let scriptGenerated = false;
     try {
       const messages = newChat.slice(-6).map(m => ({ role: m.role, content: m.content }));
-      const reply = await callAPI(messages, system, 1000);
+      const reply = await callAPI(messages, system, 2000);
       const updatedChat = [...newChat, { role: "assistant", content: reply }];
       let updates = { script_chat: updatedChat };
       const sm = reply.match(/СЦЕНАРИЙ:([\s\S]+?)(?:ХУКИ:|$)/);
@@ -1342,7 +1342,7 @@ function CopyStep({ reel, profile, onUpdate, autoGenerate, onAutoGenerateHandled
     const system = `Ты — Копирайтер. TOV: ${profile.tov?.substring(0, 250) || ""}. Инструкция площадки ${PLATFORMS[key]?.name}: ${platInstr}.\n${reel.hunt_stage ? `Ступень Ханта: ${reel.hunt_stage} — тон CTA: 1-2 мягкий (сохранить/подписаться), 3 интерес к методу, 4-5 прямой оффер с конкретикой.` : ""}\n${key === "tt" ? "overlay — короткий текст НА видео (6-8 слов), caption — развёрнутый текст под видео." : ""}${key === "th" ? "Ссылку клади в link_comment, не в text — так принято в Threads." : ""}\nПолезность пиши конкретно, без слов "полезно"/"качественный"/"уникальный" без опоры на факт. CTA — до 15 слов, без давления, на основе реальной пользы лид-магнита. Без канцеляризмов и конструкций "не X, а Y".\nОтвечай JSON без текста.`;
     const fmts = { ig: '{"caption":"...","cta":"..."}', yt: '{"title":"...","description":"...","tags":["..."]}', tg: '{"caption":"..."}', tt: '{"overlay":"...","caption":"..."}', th: '{"text":"...","link_comment":"..."}', vk: '{"caption":"..."}' };
     try {
-      const raw = await callAPI([{ role: "user", content: `Напиши описание для ${PLATFORMS[key]?.name}.\n\nСценарий: ${script}\nЗаметки: ${reel.notes || "нет"}\n${lead ? `Лид-магнит: ${lead.name} · ${lead.link}` : ""}\n\nСтруктура:\n1. Описание о чём ролик\n2. Полезность\n3. Лид-магнит + CTA\n\nJSON: ${fmts[key]}` }], system, 600);
+      const raw = await callAPI([{ role: "user", content: `Напиши описание для ${PLATFORMS[key]?.name}.\n\nСценарий: ${script}\nЗаметки: ${reel.notes || "нет"}\n${lead ? `Лид-магнит: ${lead.name} · ${lead.link}` : ""}\n\nСтруктура:\n1. Описание о чём ролик\n2. Полезность\n3. Лид-магнит + CTA\n\nJSON: ${fmts[key]}` }], system, 1000);
       const parsed = parseJSON(raw);
       onUpdate({ copy: { ...(reel.copy || {}), [key]: parsed } });
     } catch (e) { alert("Ошибка: " + e.message); }
@@ -1362,7 +1362,7 @@ function CopyStep({ reel, profile, onUpdate, autoGenerate, onAutoGenerateHandled
     const instrBlock = Object.entries(profile.platInstr || DEFAULT_PLAT_INSTR).map(([k, v]) => `${PLATFORMS[k]?.name}: ${v.substring(0, 120)}`).join("\n\n");
     const system = `Ты — Копирайтер. TOV: ${profile.tov?.substring(0, 250) || ""}.\nИнструкции:\n${instrBlock}.\n${reel.hunt_stage ? `Ступень Ханта: ${reel.hunt_stage} — тон CTA: 1-2 мягкий, 3 интерес к методу, 4-5 прямой оффер.` : ""}\nДля TikTok (tt): overlay — короткий текст НА видео (6-8 слов), caption — текст под видео. Для Threads (th): ссылку клади в link_comment, не в text.\nПолезность — конкретно, без общих слов без опоры на факт. CTA — до 15 слов, без давления. Без канцеляризмов и штампов "и вот почему"/"но есть нюанс".\nОтвечай JSON.`;
     try {
-      const raw = await callAPI([{ role: "user", content: `Адаптируй под все площадки.\nСценарий: ${script}\nЗаметки: ${reel.notes || "нет"}\n${lead ? `Лид-магнит: ${lead.name} · ${lead.link}` : ""}\n\nJSON:\n{"ig":{"caption":"...","cta":"..."},"yt":{"title":"...","description":"...","tags":["..."]},"tg":{"caption":"..."},"tt":{"overlay":"...","caption":"..."},"th":{"text":"...","link_comment":"..."},"vk":{"caption":"..."}}\n\nКаждая: описание / полезность / лид-магнит + CTA.` }], system, 1800);
+      const raw = await callAPI([{ role: "user", content: `Адаптируй под все площадки.\nСценарий: ${script}\nЗаметки: ${reel.notes || "нет"}\n${lead ? `Лид-магнит: ${lead.name} · ${lead.link}` : ""}\n\nJSON:\n{"ig":{"caption":"...","cta":"..."},"yt":{"title":"...","description":"...","tags":["..."]},"tg":{"caption":"..."},"tt":{"overlay":"...","caption":"..."},"th":{"text":"...","link_comment":"..."},"vk":{"caption":"..."}}\n\nКаждая: описание / полезность / лид-магнит + CTA.` }], system, 3000);
       const parsed = parseJSON(raw);
       onUpdate({ copy: { ...(reel.copy || {}), ...parsed } });
     } catch (e) { alert("Ошибка: " + e.message); }
@@ -1376,7 +1376,7 @@ function CopyStep({ reel, profile, onUpdate, autoGenerate, onAutoGenerateHandled
     const system = `Ты — Копирайтер для ${PLATFORMS[key]?.name}. TOV: ${profile.tov?.substring(0, 200) || ""}. Инструкция: ${platInstr}.\n${reel.hunt_stage ? `Ступень Ханта: ${reel.hunt_stage} — тон CTA: 1-2 мягкий, 3 интерес к методу, 4-5 прямой оффер.` : ""}\n${key === "tt" ? "overlay — короткий текст НА видео (6-8 слов), caption — текст под видео." : ""}${key === "th" ? "Ссылку клади в link_comment, не в text." : ""}\nКонкретная польза, CTA до 15 слов без давления, без канцеляризмов.\nОтвечай JSON.`;
     const fmts = { ig: '{"caption":"...","cta":"..."}', yt: '{"title":"...","description":"...","tags":["..."]}', tg: '{"caption":"..."}', tt: '{"overlay":"...","caption":"..."}', th: '{"text":"...","link_comment":"..."}', vk: '{"caption":"..."}' };
     try {
-      const raw = await callAPI([{ role: "user", content: `Текст для ${PLATFORMS[key]?.name}.\nСценарий: ${script}\n${lead ? `Лид-магнит: ${lead.name} · ${lead.link}` : ""}\n\nСтруктура:\n1. Описание о чём ролик\n2. Полезность\n3. Лид-магнит + CTA\n\nJSON: ${fmts[key]}` }], system, 500);
+      const raw = await callAPI([{ role: "user", content: `Текст для ${PLATFORMS[key]?.name}.\nСценарий: ${script}\n${lead ? `Лид-магнит: ${lead.name} · ${lead.link}` : ""}\n\nСтруктура:\n1. Описание о чём ролик\n2. Полезность\n3. Лид-магнит + CTA\n\nJSON: ${fmts[key]}` }], system, 900);
       const parsed = parseJSON(raw);
       onUpdate({ copy: { ...(reel.copy || {}), [key]: parsed } });
     } catch (e) { alert("Ошибка: " + e.message); }
