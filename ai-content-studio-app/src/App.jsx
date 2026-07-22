@@ -129,11 +129,19 @@ function Badge({ bg, color, children }) {
   return <span style={s.badge(bg, color)}>{children}</span>;
 }
 
+const EMPTY_PROFILE_FIELDS = { ca: "", prod: "", tov: "", memory: "", leads: [], materials: [], platInstr: { ...DEFAULT_PLAT_INSTR }, huntStage: null };
+function makeProfile(data) {
+  return { id: "p-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: "Новая ниша", ...EMPTY_PROFILE_FIELDS, ...data, platInstr: { ...DEFAULT_PLAT_INSTR, ...(data.platInstr || {}) } };
+}
+
 // ── MAIN APP ──
 export default function App() {
   const [tab, setTab] = useState("board");
   const [reels, setReels] = useState([]);
-  const [profile, setProfile] = useState({ ca: "", prod: "", tov: "", memory: "", leads: [], materials: [], platInstr: { ...DEFAULT_PLAT_INSTR } });
+  const [profiles, setProfiles] = useState([]);
+  const [activeProfileId, setActiveProfileId] = useState(null);
+  const [onboarding, setOnboarding] = useState(null); // null | "choice" | "interview"
+  const [showNicheMenu, setShowNicheMenu] = useState(false);
   const [saveStatus, setSaveStatus] = useState("");
   const [cardId, setCardId] = useState(null);
   const [showNewCard, setShowNewCard] = useState(false);
@@ -145,8 +153,24 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const p = await sGet("acs3-profile");
-      if (p) setProfile(prev => ({ ...prev, ...p, platInstr: { ...DEFAULT_PLAT_INSTR, ...(p.platInstr || {}) } }));
+      let list = await sGet("acs3-profiles");
+      let active = await sGet("acs3-active-profile-id");
+      if (!list) {
+        const legacy = await sGet("acs3-profile");
+        if (legacy && (legacy.ca || legacy.prod || legacy.tov)) {
+          const migrated = makeProfile({ name: "Моя ниша", ...legacy });
+          list = [migrated];
+          active = migrated.id;
+          await sSet("acs3-profiles", list);
+          await sSet("acs3-active-profile-id", active);
+        } else {
+          list = [];
+        }
+      }
+      setProfiles(list);
+      const validActive = active && list.some(p => p.id === active) ? active : (list[0]?.id || null);
+      setActiveProfileId(validActive);
+      if (list.length === 0) setOnboarding("choice");
       const r = await sGet("acs3-reels");
       if (r) setReels(r);
       const k = localStorage.getItem("acs3-key") || "";
@@ -158,9 +182,38 @@ export default function App() {
     await sSet("acs3-reels", updated);
   }, []);
 
-  const saveProfile = useCallback(async (updated) => {
-    await sSet("acs3-profile", updated);
+  const saveProfiles = useCallback(async (list) => {
+    await sSet("acs3-profiles", list);
   }, []);
+
+  const updateActiveProfile = useCallback((changes) => {
+    setProfiles(prev => {
+      const updated = prev.map(p => p.id === activeProfileId ? { ...p, ...changes } : p);
+      saveProfiles(updated);
+      return updated;
+    });
+  }, [activeProfileId, saveProfiles]);
+
+  const createProfile = useCallback((data) => {
+    const created = makeProfile(data);
+    setProfiles(prev => {
+      const updated = [...prev, created];
+      saveProfiles(updated);
+      return updated;
+    });
+    setActiveProfileId(created.id);
+    sSet("acs3-active-profile-id", created.id);
+    setOnboarding(null);
+    return created.id;
+  }, [saveProfiles]);
+
+  const switchProfile = useCallback((id) => {
+    setActiveProfileId(id);
+    sSet("acs3-active-profile-id", id);
+    setShowNicheMenu(false);
+  }, []);
+
+  const profile = profiles.find(p => p.id === activeProfileId) || EMPTY_PROFILE_FIELDS;
 
   const scheduleAutosave = useCallback((updatedReels) => {
     setSaveStatus("saving");
@@ -207,6 +260,28 @@ export default function App() {
           ))}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {profiles.length > 0 && (
+            <div style={{ position: "relative" }}>
+              <button onClick={() => setShowNicheMenu(v => !v)} style={{ ...s.btnOutline, display: "flex", alignItems: "center", gap: 5, maxWidth: 160 }}>
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{profile.name || "Ниша"}</span>
+                <span style={{ fontSize: 9 }}>▾</span>
+              </button>
+              {showNicheMenu && (
+                <>
+                  <div style={{ position: "fixed", inset: 0, zIndex: 150 }} onClick={() => setShowNicheMenu(false)} />
+                  <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, background: "#fff", border: `1.5px solid ${COLORS.brd}`, borderRadius: 9, boxShadow: "0 4px 16px rgba(35,18,26,.15)", minWidth: 180, zIndex: 151, overflow: "hidden" }}>
+                    {profiles.map(p => (
+                      <button key={p.id} onClick={() => switchProfile(p.id)} style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 11px", border: "none", background: p.id === activeProfileId ? COLORS.roseP : "#fff", color: p.id === activeProfileId ? COLORS.rose : COLORS.brown, fontSize: 12, fontWeight: p.id === activeProfileId ? 700 : 400, cursor: "pointer" }}>
+                        {p.id === activeProfileId ? "✓ " : ""}{p.name || "Без названия"}
+                      </button>
+                    ))}
+                    <div style={{ height: 1, background: COLORS.brd }} />
+                    <button onClick={() => { setShowNicheMenu(false); setOnboarding("choice"); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 11px", border: "none", background: "#fff", color: COLORS.rose, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>+ Добавить нишу</button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
           <span style={{ fontSize: 10, color: saveStatus === "saving" ? COLORS.amber : saveStatus === "saved" ? COLORS.green : COLORS.brownS }}>
             {saveStatus === "saving" ? "Сохраняю..." : saveStatus === "saved" ? "✓ Сохранено" : ""}
           </span>
@@ -273,8 +348,23 @@ export default function App() {
       {/* PROFILE */}
       {tab === "profile" && (
         <ProfilePanel
-          profile={profile} setProfile={setProfile} apiKey={apiKey} setApiKey={setApiKey}
-          onSave={async (p) => { await saveProfile(p); }}
+          profile={profile} apiKey={apiKey} setApiKey={setApiKey}
+          onSave={(p) => updateActiveProfile(p)}
+        />
+      )}
+
+      {/* ONBOARDING */}
+      {onboarding === "choice" && (
+        <OnboardingChoice
+          onClose={profiles.length > 0 ? () => setOnboarding(null) : null}
+          onInterview={() => setOnboarding("interview")}
+          onManual={() => { createProfile({ name: "Моя ниша" }); setTab("profile"); }}
+        />
+      )}
+      {onboarding === "interview" && (
+        <InterviewWizard
+          onCancel={() => setOnboarding("choice")}
+          onComplete={(data) => { createProfile(data); setTab("board"); }}
         />
       )}
 
@@ -323,7 +413,7 @@ export default function App() {
 }
 
 // ── PROFILE PANEL ──
-function ProfilePanel({ profile, setProfile, apiKey, setApiKey, onSave }) {
+function ProfilePanel({ profile, apiKey, setApiKey, onSave }) {
   const [showAddLead, setShowAddLead] = useState(false);
   const [showAddMat, setShowAddMat] = useState(false);
   const [leadForm, setLeadForm] = useState({ name: "", link: "", hunt: "3", desc: "" });
@@ -332,9 +422,8 @@ function ProfilePanel({ profile, setProfile, apiKey, setApiKey, onSave }) {
 
   useEffect(() => setLocalProfile(profile), [profile]);
 
-  const handleSave = async () => {
-    setProfile(localProfile);
-    await onSave(localProfile);
+  const handleSave = () => {
+    onSave(localProfile);
   };
 
   const saveKey = (v) => {
@@ -366,8 +455,13 @@ function ProfilePanel({ profile, setProfile, apiKey, setApiKey, onSave }) {
 
   return (
     <div style={{ ...s.panel }}>
-      <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 2 }}>Профиль студии</div>
-      <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 14 }}>Все данные используются агентами при каждой генерации</div>
+      <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 2 }}>Профиль ниши</div>
+      <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 14 }}>Все данные используются агентами при каждой генерации для этой ниши</div>
+
+      <div style={{ ...s.card }}>
+        <span style={s.label}>Название ниши</span>
+        <input style={s.field} value={localProfile.name || ""} onChange={e => setLocalProfile(p => ({ ...p, name: e.target.value }))} placeholder="Например, «Личный бренд» или «Клиент А»" />
+      </div>
 
       {/* API KEY */}
       <div style={{ ...s.card, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -493,11 +587,202 @@ function ProfilePanel({ profile, setProfile, apiKey, setApiKey, onSave }) {
   );
 }
 
+// ── ONBOARDING: CHOICE ──
+function OnboardingChoice({ onClose, onInterview, onManual }) {
+  return (
+    <div style={s.overlay} onClick={e => { if (onClose && e.target === e.currentTarget) onClose(); }}>
+      <div style={{ ...s.modal, maxWidth: 440, textAlign: "center" }}>
+        {onClose && <button onClick={onClose} style={{ position: "absolute", top: 12, right: 12, background: COLORS.cream, border: `1.5px solid ${COLORS.brd}`, borderRadius: 6, width: 28, height: 28, cursor: "pointer", fontSize: 12, color: COLORS.brownS, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>}
+        <div style={{ fontSize: 30, marginBottom: 8 }}>✦</div>
+        <div style={{ fontWeight: 800, fontSize: 17, marginBottom: 8 }}>Добро пожаловать в AI Content Studio</div>
+        <div style={{ fontSize: 12, color: COLORS.brownS, lineHeight: 1.6, marginBottom: 20 }}>
+          Чтобы студия сразу выдала результат ближе к твоей нише, ответь на несколько коротких вопросов — это займёт минуту. Учти: это быстрая настройка «на глаз». Для по-настоящему персонализированных ответов, которые звучат именно твоим голосом, рекомендуем пройти обучение (воркшоп) — там ты обучаешь студию под себя куда глубже.
+        </div>
+        <button style={{ ...s.btnRose, width: "100%", marginBottom: 8 }} onClick={onInterview}>⚡ Быстрый старт (4 вопроса)</button>
+        <button style={{ ...s.btnOutline, width: "100%" }} onClick={onManual}>✍️ Заполню сам</button>
+      </div>
+    </div>
+  );
+}
+
+// ── ONBOARDING: INTERVIEW WIZARD ──
+const INTERVIEW_QUESTIONS = [
+  { key: "q1", label: "Чем ты занимаешься / что продаёшь?", placeholder: "Например: провожу консультации по..." },
+  { key: "q2", label: "Кто твой клиент?", placeholder: "Пол, возраст, сфера — можно одной строкой" },
+  { key: "q3", label: "Какой тон тебе ближе?", type: "buttons", options: ["Дружелюбно на «ты»", "Экспертно и по делу", "С юмором и лёгкостью", "Вдохновляюще и эмоционально"] },
+  { key: "q4", label: "Что нужно продвигать через контент прямо сейчас?", placeholder: "Курс / консультации / личный бренд / продукт" },
+];
+
+const INTERVIEWER_SYSTEM = `Ты — дружелюбный интервьюер AI Content Studio. Твоя задача — за 4 коротких вопроса собрать бриф о нише пользователя, чтобы дальше на основе него генерировать контент по методике "Лестница Ханта".
+
+ПРАВИЛА ВЕДЕНИЯ ДИАЛОГА:
+- Задавай ровно ОДИН вопрос за раз, жди ответа, потом переходи к следующему.
+- Тон — тёплый, простой, без маркетинговых терминов. Пользователь может быть новичком.
+- Не объясняй методологию Ханта пользователю и не спрашивай про неё напрямую.
+- Если ответ пользователя короткий или расплывчатый — прими его как есть, не дожимай уточнениями (это быстрый тест, не глубокое интервью).
+
+ПОСЛЕДОВАТЕЛЬНОСТЬ ВОПРОСОВ:
+1. "Чем ты занимаешься / что продаёшь?"
+2. "Кто твой клиент? (например: пол, возраст, сфера — можно одной строкой)"
+3. "Какой тон тебе ближе?" — предложи варианты: дружелюбно на «ты» / экспертно и по делу / с юмором и лёгкостью / вдохновляюще и эмоционально
+4. "Что нужно продвигать через контент прямо сейчас?" (курс / консультации / личный бренд / продукт — свободный ответ)
+
+ПОСЛЕ 4-го ОТВЕТА:
+Самостоятельно, не показывая рассуждение пользователю, определи вероятный этап осознанности аудитории по Ханту на основе ответов 1 и 2:
+- если аудитория описана как "новички", "только начинают", "не знают, что делать" → этап 1-2
+- если "уже пробовали", "ищут специалиста", "сравнивают варианты" → этап 3-4
+- если неясно — по умолчанию бери этап 2.
+
+Затем сформируй финальный бриф СТРОГО в следующем формате, без лишних слов до или после, уложись в 800 символов:
+
+###PROFILE_START###
+НИША: [коротко, 1 строка]
+АУДИТОРИЯ: [коротко, 1 строка]
+БОЛЬ: [твой вывод на основе ответов — 1 строка]
+ТОН: [выбранный вариант]
+ОФФЕР: [что продвигаем]
+ЭТАП_ХАНТА: [1-5]
+###PROFILE_END###
+
+После этого блока добавь одну дружелюбную фразу для пользователя: "Готово! Собрал бриф — теперь можно генерировать контент под твою нишу. Для более глубокой персонализации (примеры твоих постов, точные боли аудитории, твой стиль речи) — рекомендуем пройти обучение в воркшопе."`;
+
+function InterviewWizard({ onCancel, onComplete }) {
+  const [step, setStep] = useState(0); // 0-3 questions, 4 loading, 5 review
+  const [answers, setAnswers] = useState({ q1: "", q2: "", q3: "", q4: "" });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [result, setResult] = useState(null);
+  const [editName, setEditName] = useState("");
+
+  const q = INTERVIEW_QUESTIONS[step];
+  const answered = q ? (answers[q.key] || "").trim().length > 0 : false;
+
+  const runInterview = async () => {
+    setLoading(true);
+    setError("");
+    const messages = [
+      { role: "user", content: "Начнём интервью." },
+      { role: "assistant", content: INTERVIEW_QUESTIONS[0].label },
+      { role: "user", content: answers.q1 },
+      { role: "assistant", content: "Кто твой клиент? (например: пол, возраст, сфера — можно одной строкой)" },
+      { role: "user", content: answers.q2 },
+      { role: "assistant", content: INTERVIEW_QUESTIONS[2].label },
+      { role: "user", content: answers.q3 },
+      { role: "assistant", content: INTERVIEW_QUESTIONS[3].label },
+      { role: "user", content: answers.q4 },
+    ];
+    try {
+      const reply = await callAPI(messages, INTERVIEWER_SYSTEM, 900);
+      const m = reply.match(/###PROFILE_START###([\s\S]+?)###PROFILE_END###/);
+      if (!m) throw new Error("Не удалось разобрать ответ агента. Попробуй ещё раз.");
+      const block = m[1];
+      const get = (label) => { const mm = block.match(new RegExp(label + ":\\s*(.+)")); return mm ? mm[1].trim() : ""; };
+      const niche = get("НИША");
+      const audience = get("АУДИТОРИЯ");
+      const pain = get("БОЛЬ");
+      const tone = get("ТОН");
+      const offer = get("ОФФЕР");
+      const huntStage = parseInt(get("ЭТАП_ХАНТА")) || null;
+      const data = {
+        ca: [audience, pain ? `Боль: ${pain}` : ""].filter(Boolean).join("\n"),
+        prod: [niche, offer ? `Продвигаем сейчас: ${offer}` : ""].filter(Boolean).join("\n"),
+        tov: tone,
+        huntStage,
+      };
+      setResult(data);
+      setEditName(niche.slice(0, 40) || "Новая ниша");
+      setStep(5);
+    } catch (e) {
+      setError(e.message || "Ошибка запроса");
+    }
+    setLoading(false);
+  };
+
+  const next = () => {
+    if (step < 3) { setStep(step + 1); return; }
+    setStep(4);
+    runInterview();
+  };
+
+  return (
+    <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) onCancel(); }}>
+      <div style={{ ...s.modal, maxWidth: 480 }}>
+        <button onClick={onCancel} style={{ position: "absolute", top: 12, right: 12, background: COLORS.cream, border: `1.5px solid ${COLORS.brd}`, borderRadius: 6, width: 28, height: 28, cursor: "pointer", fontSize: 12, color: COLORS.brownS, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+
+        {step <= 3 && (
+          <>
+            <div style={{ fontSize: 10, fontWeight: 700, color: COLORS.brownS, textTransform: "uppercase", letterSpacing: ".07em", marginBottom: 6 }}>Вопрос {step + 1} из 4</div>
+            <div style={{ display: "flex", gap: 3, marginBottom: 16 }}>
+              {[0, 1, 2, 3].map(i => <div key={i} style={{ flex: 1, height: 3, borderRadius: 2, background: i <= step ? COLORS.rose : COLORS.brd }} />)}
+            </div>
+            <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 14 }}>{q.label}</div>
+            {q.type === "buttons" ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
+                {q.options.map(opt => (
+                  <button key={opt} onClick={() => setAnswers(a => ({ ...a, [q.key]: opt }))} style={{ padding: "10px 12px", borderRadius: 8, border: `1.5px solid ${answers.q3 === opt ? COLORS.rose : COLORS.brd}`, background: answers.q3 === opt ? COLORS.roseP : COLORS.cream, color: answers.q3 === opt ? COLORS.rose : COLORS.brown, fontSize: 12, fontWeight: answers.q3 === opt ? 700 : 500, cursor: "pointer", textAlign: "left" }}>{opt}</button>
+                ))}
+              </div>
+            ) : (
+              <textarea autoFocus value={answers[q.key]} onChange={e => setAnswers(a => ({ ...a, [q.key]: e.target.value }))} placeholder={q.placeholder} rows={3} style={{ ...s.field, minHeight: 70, marginBottom: 16 }} />
+            )}
+            <div style={{ display: "flex", gap: 7 }}>
+              {step > 0 && <button style={s.btnOutline} onClick={() => setStep(step - 1)}>← Назад</button>}
+              <button style={{ ...s.btnRose, flex: 1, opacity: answered ? 1 : .4, cursor: answered ? "pointer" : "not-allowed" }} disabled={!answered} onClick={next}>{step === 3 ? "Собрать бриф →" : "Дальше →"}</button>
+            </div>
+          </>
+        )}
+
+        {step === 4 && (
+          <div style={{ textAlign: "center", padding: "30px 0" }}>
+            {loading && <>
+              <div style={{ height: 3, background: COLORS.brd, borderRadius: 2, overflow: "hidden", marginBottom: 16, maxWidth: 200, margin: "0 auto 16px" }}><div style={{ height: "100%", background: `linear-gradient(90deg,${COLORS.rose},#F472B6)`, animation: "lp 1.6s ease-in-out infinite" }} /></div>
+              <div style={{ fontSize: 12, color: COLORS.brownS }}>Собираю бриф на основе ответов...</div>
+            </>}
+            {error && (
+              <div>
+                <div style={{ fontSize: 12, color: "#DC2626", marginBottom: 14 }}>{error}</div>
+                <div style={{ display: "flex", gap: 7, justifyContent: "center" }}>
+                  <button style={s.btnOutline} onClick={() => setStep(3)}>← Назад к вопросам</button>
+                  <button style={s.btnRose} onClick={runInterview}>Повторить</button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {step === 5 && result && (
+          <>
+            <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>Бриф готов</div>
+            <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 14 }}>Проверь и поправь, если нужно — потом можно изменить в любой момент в профиле</div>
+            <div style={{ marginBottom: 10 }}>
+              <span style={s.label}>Название ниши</span>
+              <input style={s.field} value={editName} onChange={e => setEditName(e.target.value)} />
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <span style={s.label}>🎯 Целевая аудитория</span>
+              <textarea style={{ ...s.field, minHeight: 60 }} rows={2} value={result.ca} onChange={e => setResult(r => ({ ...r, ca: e.target.value }))} />
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <span style={s.label}>💎 Продукты и воронка</span>
+              <textarea style={{ ...s.field, minHeight: 60 }} rows={2} value={result.prod} onChange={e => setResult(r => ({ ...r, prod: e.target.value }))} />
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <span style={s.label}>🎙 Тон и стиль (TOV)</span>
+              <input style={s.field} value={result.tov} onChange={e => setResult(r => ({ ...r, tov: e.target.value }))} />
+            </div>
+            <button style={{ ...s.btnRose, width: "100%" }} onClick={() => onComplete({ name: editName, ca: result.ca, prod: result.prod, tov: result.tov, huntStage: result.huntStage })}>Сохранить и начать →</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── NEW CARD MODAL ──
 function NewCardModal({ profile, onClose, onCreate }) {
   const [platform, setPlatform] = useState("ig");
   const [format, setFormat] = useState("Reels");
-  const [hunt, setHunt] = useState(0);
+  const [hunt, setHunt] = useState(profile.huntStage || 0);
   const [leadIdx, setLeadIdx] = useState("");
   const [topic, setTopic] = useState("");
 
