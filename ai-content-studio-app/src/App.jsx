@@ -274,6 +274,10 @@ export default function App() {
   const currentReel = reels.find(r => r.id === cardId);
   const deleteBoardCard = reels.find(r => r.id === deleteBoardCardId);
 
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const dueToday = reels.filter(r => r.publish_date === todayStr && r.status !== "published");
+  const overdue = reels.filter(r => r.publish_date && r.publish_date < todayStr && r.status !== "published");
+
   return (
     <div style={{ fontFamily: "system-ui, sans-serif", background: COLORS.cream, minHeight: "100vh", color: COLORS.brown, fontSize: 13 }}>
       {/* NAV */}
@@ -331,6 +335,22 @@ export default function App() {
               <span style={{ textDecoration: "underline", cursor: "pointer" }} onClick={() => setTab("profile")}>Перейти →</span>
             </div>
           )}
+          {(dueToday.length > 0 || overdue.length > 0) && (
+            <div style={{ background: COLORS.amberL, border: `1.5px solid #FCD34D`, borderRadius: 9, padding: "9px 12px", fontSize: 11, color: COLORS.amber, fontWeight: 500, marginBottom: 12 }}>
+              {dueToday.length > 0 && (
+                <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 5, marginBottom: overdue.length ? 5 : 0 }}>
+                  <span>📅 <strong>Сегодня нужно опубликовать:</strong></span>
+                  {dueToday.map(r => <span key={r.id} onClick={() => setCardId(r.id)} style={{ textDecoration: "underline", cursor: "pointer" }}>{r.topic || "Без темы"}</span>)}
+                </div>
+              )}
+              {overdue.length > 0 && (
+                <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 5, color: "#DC2626" }}>
+                  <span>⚠ <strong>Просрочено:</strong></span>
+                  {overdue.map(r => <span key={r.id} onClick={() => setCardId(r.id)} style={{ textDecoration: "underline", cursor: "pointer" }}>{r.topic || "Без темы"}</span>)}
+                </div>
+              )}
+            </div>
+          )}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
             <div>
               <div style={{ fontSize: 18, fontWeight: 800, color: COLORS.brown }}>Производственная доска</div>
@@ -350,8 +370,11 @@ export default function App() {
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", gap: 6, minHeight: 40 }}>
                       {cards.length === 0 && <div style={{ textAlign: "center", color: COLORS.brownS, fontSize: 10, padding: "12px 4px", opacity: .5 }}>Пусто</div>}
-                      {cards.map(r => (
-                        <div key={r.id} onClick={() => setCardId(r.id)} onMouseEnter={() => setHoveredCardId(r.id)} onMouseLeave={() => setHoveredCardId(prev => (prev === r.id ? null : prev))} style={{ position: "relative", background: COLORS.white, border: `1.5px solid ${COLORS.brd}`, borderRadius: 10, padding: 10, cursor: "pointer" }}>
+                      {cards.map(r => {
+                        const isDueToday = r.publish_date === todayStr && r.status !== "published";
+                        const isOverdue = r.publish_date && r.publish_date < todayStr && r.status !== "published";
+                        return (
+                        <div key={r.id} onClick={() => setCardId(r.id)} onMouseEnter={() => setHoveredCardId(r.id)} onMouseLeave={() => setHoveredCardId(prev => (prev === r.id ? null : prev))} style={{ position: "relative", background: COLORS.white, border: `1.5px solid ${isOverdue ? "#DC2626" : isDueToday ? COLORS.amber : COLORS.brd}`, borderRadius: 10, padding: 10, cursor: "pointer" }}>
                           <button
                             onClick={e => { e.stopPropagation(); setDeleteBoardCardId(r.id); }}
                             title="Удалить"
@@ -359,6 +382,11 @@ export default function App() {
                           >✕</button>
                           <div style={{ fontWeight: 700, fontSize: 11, color: COLORS.brown, marginBottom: 4, lineHeight: 1.4, paddingRight: 16 }}>{r.topic || "Без темы"}</div>
                           <div style={{ fontSize: 10, color: COLORS.brownS, lineHeight: 1.4, marginBottom: 6, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{(r.hooks?.[r.selected_hook || 0] || r.topic || "").substring(0, 70)}</div>
+                          {(isDueToday || isOverdue) && (
+                            <div style={{ marginBottom: 6 }}>
+                              {isOverdue ? <Badge bg="#FEE2E2" color="#DC2626">⚠ Просрочено</Badge> : <Badge bg={COLORS.amberL} color={COLORS.amber}>📅 Сегодня</Badge>}
+                            </div>
+                          )}
                           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                             <div style={{ display: "flex", gap: 3 }}>
                               {r.hunt_stage ? <Badge bg={COLORS.roseL} color={COLORS.rose}>С{r.hunt_stage}</Badge> : null}
@@ -367,7 +395,8 @@ export default function App() {
                             <span style={{ fontSize: 9, color: COLORS.brownS }}>{r.created_at ? new Date(r.created_at).toLocaleDateString("ru", { day: "numeric", month: "short" }) : ""}</span>
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                     <button onClick={() => setShowNewCard(true)} style={{ width: "100%", background: "none", border: `1.5px dashed ${COLORS.brd}`, borderRadius: 8, padding: 6, color: COLORS.brownS, fontSize: 11, marginTop: 5, cursor: "pointer" }}>+ Добавить</button>
                   </div>
