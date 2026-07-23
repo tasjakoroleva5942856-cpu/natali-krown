@@ -54,20 +54,23 @@ async function sSet(key, val) {
 }
 
 // ── API ──
+function getClientId() {
+  let id = localStorage.getItem("acs3-client-id");
+  if (!id) {
+    id = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)) + Date.now().toString(36);
+    localStorage.setItem("acs3-client-id", id);
+  }
+  return id;
+}
 async function callAPI(messages, system, maxTokens = 1000) {
-  const headers = { "Content-Type": "application/json", "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" };
-  const key = localStorage.getItem("acs3-key") || "";
-  if (key) headers["x-api-key"] = key;
-  const r = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST", headers,
-    body: JSON.stringify({ model: "claude-sonnet-5", max_tokens: maxTokens, system, messages }),
+  const r = await fetch("/api/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Client-Id": getClientId() },
+    body: JSON.stringify({ system, messages, maxTokens }),
   });
   const d = await r.json();
-  if (d.error) throw new Error(d.error.message || "API ошибка");
-  // Don't assume content[0] is the text block — the response can include
-  // other block types (e.g. thinking) before it, which would silently
-  // return "" if we only ever looked at index 0.
-  return (d.content || []).filter(b => b && b.type === "text").map(b => b.text).join("");
+  if (!r.ok) throw new Error(d.error || "API ошибка");
+  return d.text || "";
 }
 function parseJSON(raw) {
   try { return JSON.parse(raw); } catch {
