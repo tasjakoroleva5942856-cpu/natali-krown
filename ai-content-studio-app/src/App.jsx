@@ -71,9 +71,12 @@ function getClientId() {
   return id;
 }
 async function callAPI(messages, system, maxTokens = 1000) {
+  const headers = { "Content-Type": "application/json", "X-Client-Id": getClientId() };
+  const paidToken = localStorage.getItem("acs3-paid-token");
+  if (paidToken) headers["Authorization"] = "Bearer " + paidToken;
   const r = await fetch("/api/generate", {
     method: "POST",
-    headers: { "Content-Type": "application/json", "X-Client-Id": getClientId() },
+    headers,
     body: JSON.stringify({ system, messages, maxTokens }),
   });
   const d = await r.json();
