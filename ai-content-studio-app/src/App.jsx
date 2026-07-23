@@ -738,15 +738,8 @@ function UploadPlanModal({ onClose, onParsed }) {
   );
 }
 
-function buildPlanSystem(typeLabel, fullDoc, platformNames) {
-  return `Ты — контент-стратег, создающий план публикаций на 30 дней на основе методики "Лестница Ханта" (5 этапов осознанности: 1 — не знает о проблеме, 2 — знает о проблеме, не ищет решение, 3 — ищет и сравнивает решения, 4 — выбирает конкретный продукт, 5 — уже клиент/адвокат).
-
-ВХОДНЫЕ ДАННЫЕ:
-Тип профиля: ${typeLabel}
-Бриф/документ ниши: ${fullDoc || "(пусто)"}
-Платформы клиента: ${platformNames}
-
-ПРАВИЛА ГЛУБИНЫ ПРОРАБОТКИ — САМОЕ ВАЖНОЕ:
+function planDepthRules(typeLabel) {
+  return `ПРАВИЛА ГЛУБИНЫ ПРОРАБОТКИ — САМОЕ ВАЖНОЕ:
 
 Если тип профиля — ДОКУМЕНТ_ВОРКШОПА:
 - В документе могут быть конкретные формулировки боли, возражения, фразы, которыми аудитория описывает свою проблему, реальные примеры/ситуации.
@@ -756,7 +749,18 @@ function buildPlanSystem(typeLabel, fullDoc, platformNames) {
 
 Если тип профиля — ИНТЕРВЬЮ:
 - Данных мало (несколько строк: ниша, аудитория, боль, тон, оффер). Работай строго с тем, что есть — не придумывай цитаты, ситуации или детали, которых нет во входных данных.
-- Поле "опора" в этом случае — "по краткому брифу", без цитат.
+- Поле "опора" в этом случае — "по краткому брифу", без цитат.`;
+}
+
+function buildPlanSystem(typeLabel, fullDoc, platformNames) {
+  return `Ты — контент-стратег, создающий план публикаций на 30 дней на основе методики "Лестница Ханта" (5 этапов осознанности: 1 — не знает о проблеме, 2 — знает о проблеме, не ищет решение, 3 — ищет и сравнивает решения, 4 — выбирает конкретный продукт, 5 — уже клиент/адвокат).
+
+ВХОДНЫЕ ДАННЫЕ:
+Тип профиля: ${typeLabel}
+Бриф/документ ниши: ${fullDoc || "(пусто)"}
+Платформы клиента: ${platformNames}
+
+${planDepthRules(typeLabel)}
 
 ОБЩИЕ ПРАВИЛА:
 - Каждая тема — короткая формулировка (не сам пост, только суть, до 12 слов).
@@ -770,9 +774,27 @@ function buildPlanSystem(typeLabel, fullDoc, platformNames) {
 [{"day": 1, "platform": "Telegram", "topic": "...", "stage": 2, "опора": "..."}, {"day": 2, "platform": "...", "topic": "...", "stage": 1, "опора": "..."}, ...]`;
 }
 
-function PlanRow({ item, onChange, onWritePost }) {
+function buildRegenItemSystem(typeLabel, fullDoc, platformName, stage, existingTopics) {
+  return `Ты — контент-стратег, работающий с планом публикаций на основе методики "Лестница Ханта" (5 этапов осознанности: 1 — не знает о проблеме, 2 — знает о проблеме, не ищет решение, 3 — ищет и сравнивает решения, 4 — выбирает конкретный продукт, 5 — уже клиент/адвокат).
+
+ВХОДНЫЕ ДАННЫЕ:
+Тип профиля: ${typeLabel}
+Бриф/документ ниши: ${fullDoc || "(пусто)"}
+Площадка: ${platformName}
+Этап Ханта: ${stage}
+Уже есть в плане (не повторяться): ${existingTopics.join("; ") || "(пока пусто)"}
+
+${planDepthRules(typeLabel)}
+
+ЗАДАЧА: придумай ОДНУ новую тему взамен текущей, для указанных площадки и этапа Ханта. До 12 слов, без маркетинговых клише, не повторяя темы из списка выше.
+
+ФОРМАТ ОТВЕТА: только валидный JSON-объект, без markdown-разметки и пояснений:
+{"topic": "...", "опора": "..."}`;
+}
+
+function PlanRow({ item, onChange, onWritePost, onDelete, onRegenerate, regenerating }) {
   return (
-    <div style={{ background: COLORS.white, border: `1.5px solid ${COLORS.brd}`, borderRadius: 9, padding: "9px 11px", display: "flex", flexDirection: "column", gap: 6 }}>
+    <div style={{ background: COLORS.white, border: `1.5px solid ${COLORS.brd}`, borderRadius: 9, padding: "9px 11px", display: "flex", flexDirection: "column", gap: 6, opacity: regenerating ? .6 : 1 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
         <span style={{ fontSize: 10, fontWeight: 700, color: COLORS.brownS, minWidth: 44 }}>День {item.day}</span>
         <select value={item.platform} onChange={e => onChange({ platform: e.target.value })} style={{ ...s.field, width: "auto", padding: "3px 7px", fontSize: 10 }}>
@@ -781,8 +803,10 @@ function PlanRow({ item, onChange, onWritePost }) {
         <select value={item.stage} onChange={e => onChange({ stage: Number(e.target.value) })} style={{ ...s.field, width: "auto", padding: "3px 7px", fontSize: 10, color: COLORS.rose, fontWeight: 700 }}>
           {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>Ступень {n}</option>)}
         </select>
-        <div style={{ marginLeft: "auto" }}>
-          <button onClick={onWritePost} style={{ ...s.btnOutline, ...s.btnSm }}>✍️ Написать пост</button>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
+          <button onClick={onWritePost} disabled={regenerating} style={{ ...s.btnOutline, ...s.btnSm }}>✍️ Написать пост</button>
+          <button onClick={onRegenerate} disabled={regenerating} title="Перегенерировать эту тему" style={{ ...s.btnOutline, padding: "4px 8px", fontSize: 11, borderRadius: 6 }}>{regenerating ? "…" : "↺"}</button>
+          <button onClick={onDelete} disabled={regenerating} title="Удалить тему" style={{ ...s.btnOutline, padding: "4px 8px", fontSize: 11, borderRadius: 6, color: "#DC2626", borderColor: "#FECACA" }}>✕</button>
         </div>
       </div>
       <input value={item.topic} onChange={e => onChange({ topic: e.target.value })} style={{ ...s.field, fontWeight: 600 }} />
@@ -852,6 +876,32 @@ function PlanTab({ profile, onUpdateProfile, onWritePost }) {
     onUpdateProfile({ contentPlan: { ...plan, items } });
   };
 
+  const deletePlanItem = (i) => {
+    const items = plan.items.filter((_, idx) => idx !== i);
+    onUpdateProfile({ contentPlan: { ...plan, items } });
+  };
+
+  const [regenIndex, setRegenIndex] = useState(null);
+
+  const regenPlanItem = async (i) => {
+    setRegenIndex(i);
+    const item = plan.items[i];
+    const typeLabel = profile.profileType === "interview" ? "ИНТЕРВЬЮ" : "ДОКУМЕНТ_ВОРКШОПА";
+    const fullDoc = buildFullNicheDocument(profile);
+    const platformName = PLATFORMS[item.platform]?.name || item.platform;
+    const existingTopics = plan.items.filter((_, idx) => idx !== i).map(it => it.topic).filter(Boolean);
+    const system = buildRegenItemSystem(typeLabel, fullDoc, platformName, item.stage, existingTopics);
+    try {
+      const raw = await callAPI([{ role: "user", content: "Предложи новую тему взамен текущей." }], system, 500);
+      if (!raw) throw new Error("Агент вернул пустой ответ.");
+      const parsed = parseJSON(raw);
+      updatePlanItem(i, { topic: parsed.topic || item.topic, anchor: parsed["опора"] || parsed.opora || parsed.anchor || item.anchor });
+    } catch (e) {
+      alert("Ошибка: " + (e.message || "не удалось перегенерировать тему"));
+    }
+    setRegenIndex(null);
+  };
+
   return (
     <div style={s.panel}>
       <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 2 }}>Контент-план на месяц</div>
@@ -889,7 +939,14 @@ function PlanTab({ profile, onUpdateProfile, onWritePost }) {
           <div style={{ fontSize: 10, color: COLORS.brownS, marginBottom: 8 }}>{plan.source === "upload" ? "Загружен" : "Сгенерирован"} {new Date(plan.generatedAt).toLocaleDateString("ru")} · {plan.items.length} тем{plan.source !== "upload" ? ` · тип профиля: ${profile.profileType === "interview" ? "по интервью" : "по документу воркшопа"}` : ""}</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {plan.items.map((item, i) => (
-              <PlanRow key={i} item={item} onChange={(changes) => updatePlanItem(i, changes)} onWritePost={() => onWritePost(item)} />
+              <PlanRow
+                key={i} item={item}
+                onChange={(changes) => updatePlanItem(i, changes)}
+                onWritePost={() => onWritePost(item)}
+                onDelete={() => deletePlanItem(i)}
+                onRegenerate={() => regenPlanItem(i)}
+                regenerating={regenIndex === i}
+              />
             ))}
           </div>
         </div>
