@@ -50,7 +50,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Некорректный запрос' });
   }
 
-  const safeMaxTokens = Math.min(parseInt(maxTokens, 10) || 1000, 2000);
+  const safeMaxTokens = Math.min(parseInt(maxTokens, 10) || 1000, 8000);
   const safeSystem = typeof system === 'string' ? system.slice(0, MAX_MESSAGE_CHARS) : undefined;
 
   try {
