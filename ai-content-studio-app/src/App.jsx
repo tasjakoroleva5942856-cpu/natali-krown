@@ -13,6 +13,14 @@ if (typeof window !== "undefined" && !window.storage) {
   };
 }
 
+if (typeof window !== "undefined") {
+  const params = new URLSearchParams(window.location.search);
+  const paidToken = params.get("token");
+  if (paidToken && /^[a-f0-9]{48}$/.test(paidToken)) {
+    localStorage.setItem("acs3-paid-token", paidToken);
+    window.history.replaceState({}, "", window.location.pathname);
+  }
+}
 // ── CONSTANTS ──
 const STATUSES = [
   { key: "idea", label: "Идея" },
