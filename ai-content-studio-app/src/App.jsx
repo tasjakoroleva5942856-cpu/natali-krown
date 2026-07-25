@@ -37,6 +37,7 @@ const PLATFORMS = {
   vk: { name: "VK", icon: "VK", formats: ["Клип", "Пост"] },
 };
 const HUNT_HINTS = ["Агент определит сам","Не осознаёт проблему","Чувствует боль","Ищет решение","Знает о нас","Готов купить"];
+const VIDEO_FORMATS = ["Reels", "Видео", "Shorts", "Кружок", "Клип"];
 const DEFAULT_PLAT_INSTR = {
   ig: "Instagram:\n— Хук в первые 2 строки\n— 1 CTA в конце\n— Эмодзи в меру",
   yt: "YouTube:\n— Ключевое слово в заголовке\n— Описание с расшифровкой первых 10 сек",
@@ -177,6 +178,7 @@ function makeReel({ platform, format, hunt = 0, topic = "" }) {
     topic, status: "idea", agreed_angle: null,
     idea_chat: [], script_chat: [], script_versions: [],
     selected_script: -1, hooks: [], selected_hook: 0,
+    shoot_format: null, shoot_plan: "",
     copy: {}, notes: "", reactions: "", publish_date: null,
   };
 }
@@ -1254,7 +1256,6 @@ function NewCardModal({ profile, onClose, onCreate }) {
 function CardModal({ reel, profile, reels, onUpdate, onDelete }) {
   const [step, setStep] = useState(0);
   const [showConfirm, setShowConfirm] = useState(false);
-  const [autoGenCopy, setAutoGenCopy] = useState(false);
   const p = PLATFORMS[reel.platform];
   const lead = reel.lead_magnet_idx != null ? profile.leads?.[reel.lead_magnet_idx] : null;
 
@@ -1293,8 +1294,8 @@ function CardModal({ reel, profile, reels, onUpdate, onDelete }) {
       </div>
 
       {step === 0 && <IdeaStep reel={reel} profile={profile} reels={reels} onUpdate={onUpdate} onAdvance={() => setStep(1)} />}
-      {step === 1 && <ScriptStep reel={reel} profile={profile} onUpdate={onUpdate} onAdvance={() => setStep(2)} onScriptReadyForReels={() => { setStep(2); setAutoGenCopy(true); }} />}
-      {step === 2 && <CopyStep reel={reel} profile={profile} onUpdate={onUpdate} autoGenerate={autoGenCopy} onAutoGenerateHandled={() => setAutoGenCopy(false)} />}
+      {step === 1 && <ScriptStep reel={reel} profile={profile} onUpdate={onUpdate} onAdvance={() => setStep(2)} />}
+      {step === 2 && <CopyStep reel={reel} profile={profile} onUpdate={onUpdate} />}
       {step === 3 && (
         <NotesStep reel={reel} onUpdate={onUpdate} onDeleteRequest={() => setShowConfirm(true)} />
       )}
@@ -1336,7 +1337,7 @@ function IdeaStep({ reel, profile, reels, onUpdate, onAdvance }) {
     if (profile.memory) ctx += `=== ПАТТЕРНЫ ===\n${profile.memory.substring(0, 200)}\n\n`;
     (profile.materials || []).filter(m => m.use?.idea).forEach(m => { ctx += `=== ${m.name.toUpperCase()} ===\n${m.text.substring(0, 300)}\n\n`; });
 
-    return `Ты — Идеолог, стратег по вирусному контенту. Тон — честный и по делу: не хвалишь идею ради вежливости, а сразу называешь сильные и слабые стороны.\n\n${ctx}\nПлощадка: ${p?.name} · ${reel.format}\n${reel.hunt_stage ? `Ступень Ханта: ${reel.hunt_stage} (${HUNT_HINTS[reel.hunt_stage]})` : "Ступень: определи сам, исходя из площадки"}\n${existingTopics ? `Уже снятые темы (не повторяться): ${existingTopics}` : ""}\n${lead ? `Лид-магнит: ${lead.name} (${lead.link})` : ""}\n\nЕсли темы нет — задай МАКСИМУМ 1 вопрос за раз (не больше 2 за сессию): что происходит в жизни/бизнесе сейчас / какой вопрос чаще всего задают клиенты / что раздражает в нише.\n\nЕсли тема есть:\n— Предложи 2-3 угла подачи (формулы: факт+эмоция, статистика+последствие, разрушение мифа/контраст "думают VS на самом деле")\n— Проверь по формуле виральности: контроверсивность, провокативность, любопытство, полярность, ёмкость, painful, общий враг, волшебная таблетка. Если идея слабая — сразу скажи, что усилить, не спрашивай "что делать"\n— Спроси про личную историю/кейс. Если боль абстрактная — предложи конкретную бытовую деталь и переверни в хук: боль → хук\n— Учти тон площадки: Threads — самая резкая провокация; Instagram/TikTok — мягче, через наблюдение; Telegram — экспертно, без провокации ради провокации\n— Обоснуй, зачем снимать для воронки\n\nНе выдумывай факты. Контроверсия — про мнение, не про ложь. "Общий враг" — система/привычка/миф, не человек.\n\nЕсли предлагаешь НЕСКОЛЬКО вариантов темы — оформляй их не строкой "ТЕМА:", а просто заголовками (например "Вариант 1: ..."), чтобы не путать с финальным выбором.\nСтрокой "ТЕМА: ..." начинай только когда пользователь явно выбрал или согласовал ОДНУ конкретную тему — в этой строке должна быть именно она, без номера.\n\nЕсли пользователь готов перейти к сценаристу (получено служебное сообщение о переходе), заверши диалог итоговым блоком СТРОГО в этом формате, без лишнего текста до или после:\n\n###ANGLE_START###\nУГОЛ: [номер и краткое название выбранного угла]\nОБОСНОВАНИЕ: [1-2 предложения, почему этот угол работает для этой аудитории/этапа]\nХУК: [конкретная фраза-зацепка, если она обсуждалась]\n###ANGLE_END###\n\nОтвечай кратко, по делу, на русском.`;
+    return `Ты — Идеолог, стратег по вирусному контенту. Тон — честный и по делу: не хвалишь идею ради вежливости, а сразу называешь сильные и слабые стороны.\n\n${ctx}\nПлощадка: ${p?.name} · ${reel.format}\n${reel.hunt_stage ? `Ступень Ханта: ${reel.hunt_stage} (${HUNT_HINTS[reel.hunt_stage]})` : "Ступень: определи сам, исходя из площадки"}\n${existingTopics ? `Уже снятые темы (не повторяться): ${existingTopics}` : ""}\n${lead ? `Лид-магнит: ${lead.name} (${lead.link})` : ""}\n\nЕсли темы нет — задай МАКСИМУМ 1 вопрос за раз (не больше 2 за сессию): что происходит в жизни/бизнесе сейчас / какой вопрос чаще всего задают клиенты / что раздражает в нише.\n\nЕсли тема есть:\n— Предложи 2-3 угла подачи (формулы: факт+эмоция, статистика+последствие, разрушение мифа/контраст "думают VS на самом деле"). По каждому углу — одна короткая фраза, что в нём цепляет (контроверсивность/любопытство/painful/общий враг), без построчного разбора всей формулы виральности. Если угол слабый — сразу скажи, что усилить, не спрашивай "что делать"\n— Если боль в теме абстрактная — сам предложи конкретную бытовую деталь и переверни её в хук (боль → хук), не дожидаясь примера от пользователя\n— Учти тон площадки: Threads — самая резкая провокация; Instagram/TikTok — мягче, через наблюдение; Telegram — экспертно, без провокации ради провокации\n— Обоснуй, зачем снимать для воронки\n— Вопросы — по минимуму: максимум ОДИН вопрос за весь ответ, и только если без ответа реально нельзя предложить конкретный угол. Если можешь сам додумать деталь или пример — предлагай её сам вместо вопроса, не спрашивай "на всякий случай"\n\nНе выдумывай факты. Контроверсия — про мнение, не про ложь. "Общий враг" — система/привычка/миф, не человек.\n\nЕсли предлагаешь НЕСКОЛЬКО вариантов темы — оформляй их не строкой "ТЕМА:", а просто заголовками (например "Вариант 1: ..."), чтобы не путать с финальным выбором.\nСтрокой "ТЕМА: ..." начинай только когда пользователь явно выбрал или согласовал ОДНУ конкретную тему — в этой строке должна быть именно она, без номера.\n\nЕсли пользователь готов перейти к сценаристу (получено служебное сообщение о переходе), заверши диалог итоговым блоком СТРОГО в этом формате, без лишнего текста до или после:\n\n###ANGLE_START###\nУГОЛ: [номер и краткое название выбранного угла]\nОБОСНОВАНИЕ: [1-2 предложения, почему этот угол работает для этой аудитории/этапа]\nХУК: [конкретная фраза-зацепка, если она обсуждалась]\n###ANGLE_END###\n\nОтвечай кратко, по делу, на русском.`;
   };
 
   const send = async (msg) => {
@@ -1436,12 +1437,28 @@ function IdeaStep({ reel, profile, reels, onUpdate, onAdvance }) {
 }
 
 // ── SCRIPT STEP ──
-function ScriptStep({ reel, profile, onUpdate, onAdvance, onScriptReadyForReels }) {
+function ScriptStep({ reel, profile, onUpdate, onAdvance }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [hooksLoading, setHooksLoading] = useState(false);
+  const [hooksError, setHooksError] = useState("");
+  const [scriptDraft, setScriptDraft] = useState(reel.script_versions?.[reel.selected_script] || "");
   const chatRef = useRef(null);
+  const autoGenRef = useRef(false);
 
   useEffect(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight; }, [reel.script_chat]);
+  useEffect(() => { setScriptDraft(reel.script_versions?.[reel.selected_script] || ""); }, [reel.selected_script, reel.script_versions]);
+
+  const isVideo = VIDEO_FORMATS.includes(reel.format);
+
+  useEffect(() => {
+    if (autoGenRef.current) return;
+    if (reel.agreed_angle && !(reel.script_versions || []).length && reel.topic?.trim() && (!isVideo || reel.shoot_format)) {
+      autoGenRef.current = true;
+      generateFromIdea();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reel.shoot_format]);
 
   const send = async (msg) => {
     if (!msg.trim()) return;
@@ -1456,8 +1473,14 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance, onScriptReadyForReels 
     if (profile.tov) ctx += `=== TOV ===\n${profile.tov.substring(0, 350)}\n\n`;
     (profile.materials || []).filter(m => m.use?.script).forEach(m => { ctx += `=== ${m.name.toUpperCase()} ===\n${m.text.substring(0, 300)}\n\n`; });
 
-    const inputBlock = `ВХОДНЫЕ ДАННЫЕ:\nТема из плана: ${reel.topic}\nПлощадка: ${p?.name}\nЭтап Ханта: ${reel.hunt_stage ? `${reel.hunt_stage} — ${HUNT_HINTS[reel.hunt_stage]}` : "не определён"}\n${reel.agreed_angle ? `Согласованный с идеологом угол (ПРИОРИТЕТНЫЙ источник — пиши строго по нему):\n${reel.agreed_angle.raw}\n\nЕсли согласованный угол противоречит теме из плана — следуй согласованному углу, тема из плана нужна только для общего контекста ниши.` : ""}`;
-    const system = `Ты — Сценарист для ${p?.name} (${reel.format}).\n\n${ctx}\n${inputBlock}\n${lead ? `Лид-магнит: ${lead.name} (${lead.link})` : ""}\n${finalScript ? `Текущий сценарий:\n${finalScript}` : ""}\n\nСтруктура:\n— хук (3 сек, до 12 слов): шок-факт/цифра, незаконченная мысль, личное признание, вопрос в боль, спор с распространённым мнением\n— середина: было плохо (конкретная деталь, не абстракция) → перелом (что произошло, какое решение принято) → стало так (результат через факт/деталь, без "и тогда я поняла, что...")\n— вывод → CTA. Тон CTA зависит от ступени Ханта: 1-2 — мягко (сохранить/подписаться, без продажи), 3 — интерес к методу (узнать больше, следующий шаг), 4-5 — прямой оффер с конкретикой, что и как получить\nДлина 30-60 сек речи.\n\nТон под площадку: Threads — резче, самостоятельная спорная мысль; Instagram/TikTok — мягче, через наблюдение; Telegram — экспертно, без провокации ради провокации.\n\nПравила:\n— Пиши в голосе автора (TOV)\n— Хук останавливает скролл\n— Никакого официоза, канцеляризмов, штампов ("важно понимать", "в современном мире")\n— Не больше 2 метафор на весь текст\n— Каждый раз, когда даёшь готовый текст сценария (новый или отредактированную правку) — выводи его целиком после СЦЕНАРИЙ:. Если просят только хуки — выводи только ХУКИ:, без повторного СЦЕНАРИЙ:\n— Хуки — начни с ХУКИ:, каждый хук отдельной строкой, минимум 2 варианта\nОтвечай на русском.`;
+    const ideaSummary = (reel.idea_chat || []).filter(m => m.role !== "note").slice(-3).map(m => `${m.role === "user" ? "Пользователь" : "Идеолог"}: ${m.content}`).join("\n").substring(0, 500);
+    const inputBlock = `ВХОДНЫЕ ДАННЫЕ:\nТема из плана: ${reel.topic}\nПлощадка: ${p?.name}\nЭтап Ханта: ${reel.hunt_stage ? `${reel.hunt_stage} — ${HUNT_HINTS[reel.hunt_stage]}` : "не определён"}\n${reel.agreed_angle ? `Согласованный с идеологом угол (ПРИОРИТЕТНЫЙ источник — пиши строго по нему):\n${reel.agreed_angle.raw}\n\nЕсли согласованный угол противоречит теме из плана — следуй согласованному углу, тема из плана нужна только для общего контекста ниши.` : ""}${ideaSummary ? `\n\nФрагменты обсуждения с Идеологом (детали, которых нет в согласованном угле, — используй если уместно):\n${ideaSummary}` : ""}`;
+    const shootPlanInstr = isVideo ? `\n\nПосле СЦЕНАРИЙ: добавь отдельным блоком ПЛАН СЪЁМКИ: с ${
+      reel.shoot_format === "voiceover" ? "тем, что показывать в кадре (Б-ролл) под каждую фразу начитки"
+      : reel.shoot_format === "full_plan" ? "для каждого смыслового куска сценария (хук / было-плохо / перелом / стало-так / CTA) — что в кадре, ракурс и крупность, примерная локация и реквизит, текст на экране в этот момент"
+      : "минимальными пометками, где сменить план/крупность для динамики (без покадрового разбора)"
+    }.` : "";
+    const system = `Ты — Сценарист для ${p?.name} (${reel.format}).\n\n${ctx}\n${inputBlock}\n${lead ? `Лид-магнит: ${lead.name} (${lead.link})` : ""}\n${finalScript ? `Текущий сценарий:\n${finalScript}` : ""}\n\nСтруктура:\n— хук (3 сек, до 12 слов): шок-факт/цифра, незаконченная мысль, личное признание, вопрос в боль, спор с распространённым мнением\n— середина: было плохо (конкретная деталь, не абстракция) → перелом (что произошло, какое решение принято) → стало так (результат через факт/деталь, без "и тогда я поняла, что...")\n— вывод → CTA. Тон CTA зависит от ступени Ханта: 1-2 — мягко (сохранить/подписаться, без продажи), 3 — интерес к методу (узнать больше, следующий шаг), 4-5 — прямой оффер с конкретикой, что и как получить\nДлина 30-60 сек речи.${shootPlanInstr}\n\nТон под площадку: Threads — резче, самостоятельная спорная мысль; Instagram/TikTok — мягче, через наблюдение; Telegram — экспертно, без провокации ради провокации.\n\nПравила:\n— Пиши в голосе автора (TOV)\n— Хук останавливает скролл\n— Никакого официоза, канцеляризмов, штампов ("важно понимать", "в современном мире")\n— Не больше 2 метафор на весь текст\n— Каждый раз, когда даёшь готовый текст сценария (новый или отредактированную правку) — выводи его целиком после СЦЕНАРИЙ:, без ХУКИ: — хуки предлагаются отдельным запросом после одобрения сценария. Только если пользователь явно попросил хуки в чате — выводи их после ХУКИ:, каждый хук отдельной строкой, минимум 2 варианта, без повторного СЦЕНАРИЙ:\nОтвечай на русском.`;
 
     const newChat = [...(reel.script_chat || []), { role: "user", content: msg }];
     onUpdate({ script_chat: newChat });
@@ -1467,18 +1490,20 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance, onScriptReadyForReels 
       const reply = await callAPI(messages, system, 2000);
       const updatedChat = [...newChat, { role: "assistant", content: reply }];
       let updates = { script_chat: updatedChat };
-      const sm = reply.match(/СЦЕНАРИЙ:([\s\S]+?)(?:ХУКИ:|$)/);
+      const sm = reply.match(/СЦЕНАРИЙ:([\s\S]+?)(?:ХУКИ:|ПЛАН СЪЁМКИ:|$)/);
       if (sm) {
         const versions = [...(reel.script_versions || []), sm[1].trim()];
         updates.script_versions = versions;
         updates.selected_script = versions.length - 1;
         scriptGenerated = true;
       }
-      const hm = reply.match(/ХУКИ:([\s\S]+)/);
+      const hm = reply.match(/ХУКИ:([\s\S]+?)(?:ПЛАН СЪЁМКИ:|$)/);
       if (hm) {
         const lines = hm[1].split("\n").map(l => l.replace(/^[-•\d.]+\s*/, "")).filter(l => l.trim().length > 10);
         if (lines.length >= 2) updates.hooks = lines.slice(0, 3);
       }
+      const pm = reply.match(/ПЛАН СЪЁМКИ:([\s\S]+)/);
+      if (pm) updates.shoot_plan = pm[1].trim();
       onUpdate(updates);
     } catch (e) {
       onUpdate({ script_chat: [...newChat, { role: "assistant", content: "Ошибка: " + e.message }] });
@@ -1487,10 +1512,36 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance, onScriptReadyForReels 
     return scriptGenerated;
   };
 
-  const generateFromIdea = async () => {
-    const ok = await send(`Сгенерируй сценарий на тему: ${reel.topic}`);
-    if (ok && reel.format === "Reels") onScriptReadyForReels?.();
+  const generateFromIdea = async () => { await send(`Сгенерируй сценарий на тему: ${reel.topic}`); };
+
+  const saveScriptEdit = () => {
+    if (reel.selected_script < 0 || scriptDraft === reel.script_versions?.[reel.selected_script]) return;
+    const versions = [...reel.script_versions];
+    versions[reel.selected_script] = scriptDraft;
+    onUpdate({ script_versions: versions });
   };
+
+  const requestHooks = async () => {
+    setHooksLoading(true);
+    setHooksError("");
+    const finalScript = reel.selected_script >= 0 ? reel.script_versions?.[reel.selected_script] : "";
+    const system = `Ты — Сценарист. Дай минимум 2 варианта хука (первая фраза ролика, 3 сек, до 12 слов) к финальному сценарию ниже. Ответь СТРОГО в формате: начни с ХУКИ:, каждый хук отдельной строкой, без другого текста до или после.\n\nСценарий:\n${finalScript}`;
+    try {
+      const reply = await callAPI([{ role: "user", content: "Дай варианты хука к финальному сценарию." }], system, 400);
+      const hm = reply.match(/ХУКИ:([\s\S]+)/);
+      const lines = hm ? hm[1].split("\n").map(l => l.replace(/^[-•\d.]+\s*/, "").trim()).filter(l => l.length > 10) : [];
+      if (lines.length >= 2) {
+        onUpdate({ hooks: lines.slice(0, 3), selected_hook: 0 });
+      } else {
+        setHooksError("Не удалось получить хуки. Можно перейти без них.");
+      }
+    } catch (e) {
+      setHooksError(e.message || "Ошибка запроса");
+    }
+    setHooksLoading(false);
+  };
+
+  const hasHooks = (reel.hooks || []).length > 0;
 
   return (
     <div>
@@ -1499,13 +1550,25 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance, onScriptReadyForReels 
           {reel.agreed_angle && (
             <div style={{ background: COLORS.purpleL, border: `1.5px solid #C4B5FD`, borderRadius: 9, padding: "9px 11px", marginBottom: 10, fontSize: 11, color: COLORS.purple, lineHeight: 1.5 }}>
               <div style={{ fontWeight: 700, marginBottom: 3 }}>✓ Угол согласован с Идеологом</div>
+              {reel.topic && <div><strong>Тема:</strong> {reel.topic}</div>}
               {reel.agreed_angle.angle && <div><strong>Угол:</strong> {reel.agreed_angle.angle}</div>}
+              {reel.agreed_angle.rationale && <div><strong>Почему работает:</strong> {reel.agreed_angle.rationale}</div>}
               {reel.agreed_angle.hook && <div><strong>Хук:</strong> {reel.agreed_angle.hook}</div>}
             </div>
           )}
           <span style={s.label}>Идея (согласована на прошлом шаге — можно поправить)</span>
           <textarea style={{ ...s.field, minHeight: 60 }} rows={3} value={reel.topic || ""} onChange={e => onUpdate({ topic: e.target.value })} placeholder="Тема ролика..." />
-          <button onClick={generateFromIdea} disabled={loading || !reel.topic?.trim()} style={{ ...s.btnRose, width: "100%", marginTop: 8, opacity: (loading || !reel.topic?.trim()) ? .5 : 1 }}>
+          {isVideo && (
+            <div style={{ marginTop: 8 }}>
+              <span style={s.label}>Формат съёмки</span>
+              <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                {[["talking_head", "🎤 Говорю на камеру"], ["voiceover", "🎙 Закадровый голос"], ["full_plan", "🎬 Нужен полный план"]].map(([key, label]) => (
+                  <button key={key} onClick={() => onUpdate({ shoot_format: key })} style={{ padding: "6px 10px", borderRadius: 7, border: `1.5px solid ${reel.shoot_format === key ? COLORS.rose : COLORS.brd}`, background: reel.shoot_format === key ? COLORS.rose : COLORS.cream, color: reel.shoot_format === key ? "#fff" : COLORS.brownS, fontSize: 11, fontWeight: reel.shoot_format === key ? 600 : 400, cursor: "pointer" }}>{label}</button>
+                ))}
+              </div>
+            </div>
+          )}
+          <button onClick={generateFromIdea} disabled={loading || !reel.topic?.trim() || (isVideo && !reel.shoot_format)} style={{ ...s.btnRose, width: "100%", marginTop: 8, opacity: (loading || !reel.topic?.trim() || (isVideo && !reel.shoot_format)) ? .5 : 1 }}>
             {loading ? "Генерирую..." : "✦ Сгенерировать сценарий"}
           </button>
         </div>
@@ -1523,6 +1586,19 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance, onScriptReadyForReels 
           ))}
         </div>
       )}
+      {(reel.script_versions || []).length > 0 && reel.selected_script >= 0 && (
+        <div style={{ marginBottom: 10 }}>
+          <span style={s.label}>Текст выбранной версии (можно править вручную)</span>
+          <textarea value={scriptDraft} onChange={e => setScriptDraft(e.target.value)} onBlur={saveScriptEdit} style={{ ...s.field, minHeight: 140 }} rows={7} />
+          <button onClick={saveScriptEdit} style={{ ...s.btnOutline, ...s.btnSm, marginTop: 6 }}>Сохранить правки</button>
+        </div>
+      )}
+      {reel.shoot_plan && (
+        <div style={{ marginBottom: 10 }}>
+          <span style={s.label}>🎬 План съёмки</span>
+          <div style={{ fontSize: 11, color: COLORS.brown, lineHeight: 1.6, whiteSpace: "pre-wrap", background: COLORS.cream, borderRadius: 8, padding: 9, border: `1.5px solid ${COLORS.brd}` }}>{reel.shoot_plan}</div>
+        </div>
+      )}
       <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 8 }}>{(reel.script_versions || []).length ? "Правки и новые версии — прямо в чате. Каждая версия сохраняется." : "Отредактируй идею выше и нажми «Сгенерировать сценарий», или сразу опиши, что нужно, в чате."}</div>
       <div ref={chatRef} style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 220, overflowY: "auto", marginBottom: 8 }}>
         {(reel.script_chat || []).map((m, i) => <div key={i} style={s.chatMsg(m.role)}><MsgText text={m.content} /></div>)}
@@ -1537,7 +1613,7 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance, onScriptReadyForReels 
         <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }} placeholder="Черновик или правки Сценаристу..." rows={1} style={{ ...s.field, flex: 1, minHeight: 38, maxHeight: 90 }} />
         <button onClick={() => send(input)} disabled={loading} style={{ ...s.btnRose, width: 36, height: 36, padding: 0, flexShrink: 0, opacity: loading ? .4 : 1 }}>→</button>
       </div>
-      {(reel.hooks || []).length > 0 && (
+      {hasHooks && (
         <div style={{ marginTop: 12 }}>
           <div style={{ height: 1, background: COLORS.brd, margin: "12px 0" }} />
           <span style={s.label}>Хуки (⭐ — финальный)</span>
@@ -1550,15 +1626,27 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance, onScriptReadyForReels 
         </div>
       )}
       <div style={{ height: 1, background: COLORS.brd, margin: "14px 0 10px" }} />
-      <button onClick={onAdvance} disabled={reel.selected_script < 0} style={{ ...s.btnRose, width: "100%", opacity: reel.selected_script >= 0 ? 1 : .4, cursor: reel.selected_script >= 0 ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-        Сценарий согласован — дальше к Копирайтеру →
-      </button>
+      {hooksError && (
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ fontSize: 11, color: "#DC2626", marginBottom: 6 }}>{hooksError}</div>
+          <button onClick={onAdvance} style={{ ...s.btnOutline, ...s.btnSm }}>Перейти без хуков →</button>
+        </div>
+      )}
+      {hasHooks ? (
+        <button onClick={onAdvance} disabled={reel.selected_script < 0} style={{ ...s.btnRose, width: "100%", opacity: reel.selected_script >= 0 ? 1 : .4, cursor: reel.selected_script >= 0 ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+          Дальше к Копирайтеру →
+        </button>
+      ) : (
+        <button onClick={requestHooks} disabled={reel.selected_script < 0 || hooksLoading} style={{ ...s.btnRose, width: "100%", opacity: (reel.selected_script >= 0 && !hooksLoading) ? 1 : .4, cursor: (reel.selected_script >= 0 && !hooksLoading) ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+          {hooksLoading ? "Подбираю хуки..." : "Сценарий согласован — показать хуки →"}
+        </button>
+      )}
     </div>
   );
 }
 
 // ── COPY STEP ──
-function CopyStep({ reel, profile, onUpdate, autoGenerate, onAutoGenerateHandled }) {
+function CopyStep({ reel, profile, onUpdate }) {
   const [loading, setLoading] = useState(false);
 
   const getCtx = () => {
@@ -1567,6 +1655,8 @@ function CopyStep({ reel, profile, onUpdate, autoGenerate, onAutoGenerateHandled
     if (profile.prod) ctx += `=== ПРОДУКТЫ ===\n${profile.prod.substring(0, 400)}\n\n`;
     if (profile.tov) ctx += `=== TOV ===\n${profile.tov.substring(0, 300)}\n\n`;
     (profile.materials || []).filter(m => m.use?.copy).forEach(m => { ctx += `=== ${m.name.toUpperCase()} ===\n${m.text.substring(0, 300)}\n\n`; });
+    const scriptSummary = (reel.script_chat || []).slice(-2).map(m => `${m.role === "user" ? "Пользователь" : "Сценарист"}: ${m.content}`).join("\n").substring(0, 400);
+    if (scriptSummary) ctx += `=== ОБСУЖДЕНИЕ ПРИ ПРАВКЕ СЦЕНАРИЯ (детали, которых нет в финальном тексте) ===\n${scriptSummary}\n\n`;
     return ctx;
   };
 
@@ -1580,36 +1670,42 @@ function CopyStep({ reel, profile, onUpdate, autoGenerate, onAutoGenerateHandled
   }) || profile.leads?.[0];
 
   const script = reel.selected_script >= 0 ? reel.script_versions?.[reel.selected_script] : reel.topic;
+  const sourceIsVideo = VIDEO_FORMATS.includes(reel.format);
+  const isVideoAdjacentPlat = (key) => key === "tt" || key === "yt" || (key === "ig" && reel.format === "Reels");
+  const needsFullScript = (key) => isVideoAdjacentPlat(key) && !sourceIsVideo;
+  const bonusStructureInstr = (key) => isVideoAdjacentPlat(key)
+    ? `Описание физически отдельно от видео — не пересказывай видео. Структура: 1) короткая зацепка, обещающая доп. пользу (например "сохрани", "вот 5 способов") 2) самостоятельная бонусная польза — конкретный список/чек-лист/лайфхак, которого НЕТ в самом видео 3) CTA по ступени Ханта: 1-2 — просто польза + "сохрани", без давления; 3 — интерес к методу; 4-5 — бонус ведёт к лид-магниту/офферу.`
+    : `Структура: 1. Описание о чём ролик 2. Полезность 3. Лид-магнит + CTA.`;
+  const fullScriptInstr = `Исходный контент не был видео-форматом — помимо описания напиши ПОЛНЫЙ сценарий для видео (поле script): хук (3 сек, до 12 слов: шок-факт/цифра/незаконченная мысль/вопрос в боль) → было плохо (конкретная деталь) → перелом → стало так (результат) → CTA по ступени Ханта. Длина 30-60 сек речи.`;
+  const baseFmts = { ig: '{"caption":"...","cta":"..."}', yt: '{"title":"...","description":"...","tags":["..."]}', tg: '{"caption":"..."}', tt: '{"overlay":"...","caption":"..."}', th: '{"text":"...","link_comment":"..."}', vk: '{"caption":"..."}' };
+  const scriptFmts = { tt: '{"script":"...","overlay":"...","caption":"..."}', yt: '{"script":"...","title":"...","description":"...","tags":["..."]}' };
 
   const genMain = async () => {
     setLoading(true);
     const lead = getLead();
     const key = reel.platform;
     const platInstr = (profile.platInstr || DEFAULT_PLAT_INSTR)[key] || DEFAULT_PLAT_INSTR[key] || "";
-    const system = `Ты — Копирайтер. TOV: ${profile.tov?.substring(0, 250) || ""}. Инструкция площадки ${PLATFORMS[key]?.name}: ${platInstr}.\n${reel.hunt_stage ? `Ступень Ханта: ${reel.hunt_stage} — тон CTA: 1-2 мягкий (сохранить/подписаться), 3 интерес к методу, 4-5 прямой оффер с конкретикой.` : ""}\n${key === "tt" ? "overlay — короткий текст НА видео (6-8 слов), caption — развёрнутый текст под видео." : ""}${key === "th" ? "Ссылку клади в link_comment, не в text — так принято в Threads." : ""}\nПолезность пиши конкретно, без слов "полезно"/"качественный"/"уникальный" без опоры на факт. CTA — до 15 слов, без давления, на основе реальной пользы лид-магнита. Без канцеляризмов и конструкций "не X, а Y".\nОтвечай JSON без текста.`;
-    const fmts = { ig: '{"caption":"...","cta":"..."}', yt: '{"title":"...","description":"...","tags":["..."]}', tg: '{"caption":"..."}', tt: '{"overlay":"...","caption":"..."}', th: '{"text":"...","link_comment":"..."}', vk: '{"caption":"..."}' };
+    const fullScript = needsFullScript(key);
+    const system = `Ты — Копирайтер. TOV: ${profile.tov?.substring(0, 250) || ""}. Инструкция площадки ${PLATFORMS[key]?.name}: ${platInstr}.\n${getCtx()}\n${reel.hunt_stage ? `Ступень Ханта: ${reel.hunt_stage} — тон CTA: 1-2 мягкий (сохранить/подписаться), 3 интерес к методу, 4-5 прямой оффер с конкретикой.` : ""}\n${key === "tt" ? "overlay — короткий текст НА видео (6-8 слов), caption — развёрнутый текст под видео." : ""}${key === "th" ? "Ссылку клади в link_comment, не в text — так принято в Threads." : ""}\n${bonusStructureInstr(key)}${fullScript ? `\n${fullScriptInstr}` : ""}\nПолезность пиши конкретно, без слов "полезно"/"качественный"/"уникальный" без опоры на факт. CTA — до 15 слов, без давления, на основе реальной пользы лид-магнита. Без канцеляризмов и конструкций "не X, а Y".\nОтвечай JSON без текста.`;
+    const fmt = fullScript ? (scriptFmts[key] || baseFmts[key]) : baseFmts[key];
     try {
-      const raw = await callAPI([{ role: "user", content: `Напиши описание для ${PLATFORMS[key]?.name}.\n\nСценарий: ${script}\nЗаметки: ${reel.notes || "нет"}\n${lead ? `Лид-магнит: ${lead.name} · ${lead.link}` : ""}\n\nСтруктура:\n1. Описание о чём ролик\n2. Полезность\n3. Лид-магнит + CTA\n\nJSON: ${fmts[key]}` }], system, 1000);
+      const raw = await callAPI([{ role: "user", content: `Напиши описание для ${PLATFORMS[key]?.name}.\n\nСценарий: ${script}\nЗаметки: ${reel.notes || "нет"}\n${lead ? `Лид-магнит: ${lead.name} · ${lead.link}` : ""}\n\nJSON: ${fmt}` }], system, fullScript ? 1800 : 1000);
       const parsed = parseJSON(raw);
       onUpdate({ copy: { ...(reel.copy || {}), [key]: parsed } });
     } catch (e) { alert("Ошибка: " + e.message); }
     setLoading(false);
   };
 
-  useEffect(() => {
-    if (!autoGenerate) return;
-    onAutoGenerateHandled?.();
-    genMain();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoGenerate]);
-
   const adaptAll = async () => {
     setLoading(true);
     const lead = getLead();
     const instrBlock = Object.entries(profile.platInstr || DEFAULT_PLAT_INSTR).map(([k, v]) => `${PLATFORMS[k]?.name}: ${v.substring(0, 120)}`).join("\n\n");
-    const system = `Ты — Копирайтер. TOV: ${profile.tov?.substring(0, 250) || ""}.\nИнструкции:\n${instrBlock}.\n${reel.hunt_stage ? `Ступень Ханта: ${reel.hunt_stage} — тон CTA: 1-2 мягкий, 3 интерес к методу, 4-5 прямой оффер.` : ""}\nДля TikTok (tt): overlay — короткий текст НА видео (6-8 слов), caption — текст под видео. Для Threads (th): ссылку клади в link_comment, не в text.\nПолезность — конкретно, без общих слов без опоры на факт. CTA — до 15 слов, без давления. Без канцеляризмов и штампов "и вот почему"/"но есть нюанс".\nОтвечай JSON.`;
+    const system = `Ты — Копирайтер. TOV: ${profile.tov?.substring(0, 250) || ""}.\n${getCtx()}\nИнструкции:\n${instrBlock}.\n${reel.hunt_stage ? `Ступень Ханта: ${reel.hunt_stage} — тон CTA: 1-2 мягкий, 3 интерес к методу, 4-5 прямой оффер.` : ""}\nДля TikTok (tt): overlay — короткий текст НА видео (6-8 слов), caption — текст под видео. Для Threads (th): ссылку клади в link_comment, не в text.\nДля площадок, где описание физически отдельно от видео (tt, yt, а также ig если формат ролика — Reels) — не пересказывай видео в описании: 1) короткая зацепка, обещающая доп. пользу 2) самостоятельная бонусная польза — список/чек-лист/лайфхак, которого нет в видео 3) CTA по ступени Ханта (1-2 мягко+сохрани, 3 интерес к методу, 4-5 бонус ведёт к офферу). Для остальных площадок (tg, th, vk, ig не-Reels) — структура описание/полезность/лид-магнит+CTA не меняется.\n${!sourceIsVideo ? fullScriptInstr + " Это касается только tt и yt." : ""}\nПолезность — конкретно, без общих слов без опоры на факт. CTA — до 15 слов, без давления. Без канцеляризмов и штампов "и вот почему"/"но есть нюанс".\nОтвечай JSON.`;
+    const jsonShape = sourceIsVideo
+      ? `{"ig":{"caption":"...","cta":"..."},"yt":{"title":"...","description":"...","tags":["..."]},"tg":{"caption":"..."},"tt":{"overlay":"...","caption":"..."},"th":{"text":"...","link_comment":"..."},"vk":{"caption":"..."}}`
+      : `{"ig":{"caption":"...","cta":"..."},"yt":{"script":"...","title":"...","description":"...","tags":["..."]},"tg":{"caption":"..."},"tt":{"script":"...","overlay":"...","caption":"..."},"th":{"text":"...","link_comment":"..."},"vk":{"caption":"..."}}`;
     try {
-      const raw = await callAPI([{ role: "user", content: `Адаптируй под все площадки.\nСценарий: ${script}\nЗаметки: ${reel.notes || "нет"}\n${lead ? `Лид-магнит: ${lead.name} · ${lead.link}` : ""}\n\nJSON:\n{"ig":{"caption":"...","cta":"..."},"yt":{"title":"...","description":"...","tags":["..."]},"tg":{"caption":"..."},"tt":{"overlay":"...","caption":"..."},"th":{"text":"...","link_comment":"..."},"vk":{"caption":"..."}}\n\nКаждая: описание / полезность / лид-магнит + CTA.` }], system, 3000);
+      const raw = await callAPI([{ role: "user", content: `Адаптируй под все площадки.\nСценарий: ${script}\nЗаметки: ${reel.notes || "нет"}\n${lead ? `Лид-магнит: ${lead.name} · ${lead.link}` : ""}\n\nJSON:\n${jsonShape}` }], system, sourceIsVideo ? 3000 : 4000);
       const parsed = parseJSON(raw);
       onUpdate({ copy: { ...(reel.copy || {}), ...parsed } });
     } catch (e) { alert("Ошибка: " + e.message); }
@@ -1620,10 +1716,11 @@ function CopyStep({ reel, profile, onUpdate, autoGenerate, onAutoGenerateHandled
     setLoading(true);
     const lead = getLead();
     const platInstr = (profile.platInstr || DEFAULT_PLAT_INSTR)[key] || DEFAULT_PLAT_INSTR[key] || "";
-    const system = `Ты — Копирайтер для ${PLATFORMS[key]?.name}. TOV: ${profile.tov?.substring(0, 200) || ""}. Инструкция: ${platInstr}.\n${reel.hunt_stage ? `Ступень Ханта: ${reel.hunt_stage} — тон CTA: 1-2 мягкий, 3 интерес к методу, 4-5 прямой оффер.` : ""}\n${key === "tt" ? "overlay — короткий текст НА видео (6-8 слов), caption — текст под видео." : ""}${key === "th" ? "Ссылку клади в link_comment, не в text." : ""}\nКонкретная польза, CTA до 15 слов без давления, без канцеляризмов.\nОтвечай JSON.`;
-    const fmts = { ig: '{"caption":"...","cta":"..."}', yt: '{"title":"...","description":"...","tags":["..."]}', tg: '{"caption":"..."}', tt: '{"overlay":"...","caption":"..."}', th: '{"text":"...","link_comment":"..."}', vk: '{"caption":"..."}' };
+    const fullScript = needsFullScript(key);
+    const system = `Ты — Копирайтер для ${PLATFORMS[key]?.name}. TOV: ${profile.tov?.substring(0, 200) || ""}. Инструкция: ${platInstr}.\n${getCtx()}\n${reel.hunt_stage ? `Ступень Ханта: ${reel.hunt_stage} — тон CTA: 1-2 мягкий, 3 интерес к методу, 4-5 прямой оффер.` : ""}\n${key === "tt" ? "overlay — короткий текст НА видео (6-8 слов), caption — текст под видео." : ""}${key === "th" ? "Ссылку клади в link_comment, не в text." : ""}\n${bonusStructureInstr(key)}${fullScript ? `\n${fullScriptInstr}` : ""}\nКонкретная польза, CTA до 15 слов без давления, без канцеляризмов.\nОтвечай JSON.`;
+    const fmt = fullScript ? (scriptFmts[key] || baseFmts[key]) : baseFmts[key];
     try {
-      const raw = await callAPI([{ role: "user", content: `Текст для ${PLATFORMS[key]?.name}.\nСценарий: ${script}\n${lead ? `Лид-магнит: ${lead.name} · ${lead.link}` : ""}\n\nСтруктура:\n1. Описание о чём ролик\n2. Полезность\n3. Лид-магнит + CTA\n\nJSON: ${fmts[key]}` }], system, 900);
+      const raw = await callAPI([{ role: "user", content: `Текст для ${PLATFORMS[key]?.name}.\nСценарий: ${script}\n${lead ? `Лид-магнит: ${lead.name} · ${lead.link}` : ""}\n\nJSON: ${fmt}` }], system, fullScript ? 1600 : 900);
       const parsed = parseJSON(raw);
       onUpdate({ copy: { ...(reel.copy || {}), [key]: parsed } });
     } catch (e) { alert("Ошибка: " + e.message); }
@@ -1633,7 +1730,7 @@ function CopyStep({ reel, profile, onUpdate, autoGenerate, onAutoGenerateHandled
   const copyToClipboard = (key) => {
     const d = reel.copy?.[key];
     if (!d) return;
-    const texts = { ig: `${d.caption || ""}\n\n${d.cta || ""}`, yt: `${d.title || ""}\n\n${d.description || ""}\n\n${(d.tags || []).join(" ")}`, tg: d.caption || "", tt: `${d.overlay || ""}\n\n${d.caption || ""}`, th: `${d.text || ""}\n\n${d.link_comment || ""}`, vk: d.caption || "" };
+    const texts = { ig: `${d.caption || ""}\n\n${d.cta || ""}`, yt: `${d.script ? d.script + "\n\n" : ""}${d.title || ""}\n\n${d.description || ""}\n\n${(d.tags || []).join(" ")}`, tg: d.caption || "", tt: `${d.script ? d.script + "\n\n" : ""}${d.overlay || ""}\n\n${d.caption || ""}`, th: `${d.text || ""}\n\n${d.link_comment || ""}`, vk: d.caption || "" };
     navigator.clipboard.writeText(texts[key] || "").catch(() => {});
   };
 
@@ -1641,9 +1738,9 @@ function CopyStep({ reel, profile, onUpdate, autoGenerate, onAutoGenerateHandled
     if (!d) return <div style={{ fontSize: 10, color: COLORS.brownS, padding: "6px 0", textAlign: "center", opacity: .6 }}>Нажми «Написать тексты»</div>;
     const field = (label, val) => val ? <div key={label}><div style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".05em", color: COLORS.brownS, marginBottom: 3, marginTop: 7 }}>{label}</div><div style={{ fontSize: 11, color: COLORS.brown, lineHeight: 1.6, whiteSpace: "pre-wrap", background: COLORS.cream, borderRadius: 6, padding: 7, border: `1.5px solid ${COLORS.brd}` }}>{val}</div></div> : null;
     if (key === "ig") return <>{field("Описание", d.caption)}{field("CTA", d.cta)}</>;
-    if (key === "yt") return <>{field("Заголовок", d.title)}{field("Описание", d.description)}{d.tags?.length ? <div><div style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", color: COLORS.brownS, marginTop: 7, marginBottom: 3 }}>Теги</div><div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>{d.tags.map((t, i) => <span key={i} style={{ background: COLORS.roseP, color: COLORS.rose, borderRadius: 20, padding: "2px 6px", fontSize: 9 }}>{t}</span>)}</div></div> : null}</>;
+    if (key === "yt") return <>{field("Сценарий", d.script)}{field("Заголовок", d.title)}{field("Описание", d.description)}{d.tags?.length ? <div><div style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", color: COLORS.brownS, marginTop: 7, marginBottom: 3 }}>Теги</div><div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>{d.tags.map((t, i) => <span key={i} style={{ background: COLORS.roseP, color: COLORS.rose, borderRadius: 20, padding: "2px 6px", fontSize: 9 }}>{t}</span>)}</div></div> : null}</>;
     if (key === "tg") return field("Пост", d.caption);
-    if (key === "tt") return <>{field("Текст на видео", d.overlay)}{field("Описание", d.caption)}</>;
+    if (key === "tt") return <>{field("Сценарий", d.script)}{field("Текст на видео", d.overlay)}{field("Описание", d.caption)}</>;
     if (key === "th") return <>{field("Пост", d.text)}{field("Комментарий", d.link_comment)}</>;
     if (key === "vk") return field("Пост", d.caption);
     return null;
