@@ -544,6 +544,22 @@ function ProfilePanel({ profile, apiKey, setApiKey, onSave }) {
 
   const deleteMat = (i) => setLocalProfile(p => ({ ...p, materials: p.materials.filter((_, idx) => idx !== i) }));
 
+  const appendFieldFile = async (id, e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const text = await file.text();
+    setLocalProfile(p => ({ ...p, [id]: (p[id] ? p[id] + "\n\n" : "") + text }));
+    e.target.value = "";
+  };
+
+  const attachMatFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const text = await file.text();
+    setMatForm(p => ({ ...p, name: p.name || file.name.replace(/\.[^.]+$/, ""), text: (p.text ? p.text + "\n\n" : "") + text }));
+    e.target.value = "";
+  };
+
   const keyOk = apiKey.startsWith("sk-ant-");
 
   return (
@@ -575,6 +591,10 @@ function ProfilePanel({ profile, apiKey, setApiKey, onSave }) {
             <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 2 }}>{f.title}</div>
             <div style={{ fontSize: 10, color: COLORS.brownS, marginBottom: 7 }}>{f.hint}</div>
             <textarea style={{ ...s.field, minHeight: 110 }} rows={5} value={localProfile[f.id] || ""} onChange={e => setLocalProfile(p => ({ ...p, [f.id]: e.target.value }))} />
+            <label style={{ ...s.btnOutline, ...s.btnSm, display: "inline-flex", alignItems: "center", gap: 5, marginTop: 7, cursor: "pointer" }}>
+              📎 Загрузить файл
+              <input type="file" accept=".txt,.md,text/plain" onChange={e => appendFieldFile(f.id, e)} style={{ display: "none" }} />
+            </label>
           </div>
         ))}
       </div>
@@ -655,7 +675,14 @@ function ProfilePanel({ profile, apiKey, setApiKey, onSave }) {
                 ))}
               </div>
             </div>
-            <div style={{ marginBottom: 8 }}><span style={s.label}>Текст</span><textarea style={{ ...s.field, minHeight: 70 }} rows={3} value={matForm.text} onChange={e => setMatForm(p => ({ ...p, text: e.target.value }))} placeholder="Вставь текст..." /></div>
+            <div style={{ marginBottom: 8 }}>
+              <span style={s.label}>Текст</span>
+              <textarea style={{ ...s.field, minHeight: 70 }} rows={3} value={matForm.text} onChange={e => setMatForm(p => ({ ...p, text: e.target.value }))} placeholder="Вставь текст или загрузи файл..." />
+              <label style={{ ...s.btnOutline, ...s.btnSm, display: "inline-flex", alignItems: "center", gap: 5, marginTop: 6, cursor: "pointer" }}>
+                📎 Загрузить файл
+                <input type="file" accept=".txt,.md,text/plain" onChange={attachMatFile} style={{ display: "none" }} />
+              </label>
+            </div>
             <div style={{ display: "flex", gap: 6 }}>
               <button style={{ ...s.btnRose, ...s.btnSm }} onClick={addMat}>Сохранить</button>
               <button style={{ ...s.btnOutline, ...s.btnSm }} onClick={() => setShowAddMat(false)}>Отмена</button>
@@ -669,6 +696,10 @@ function ProfilePanel({ profile, apiKey, setApiKey, onSave }) {
         <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 3 }}>🧠 Память студии</div>
         <div style={{ fontSize: 10, color: COLORS.brownS, marginBottom: 8 }}>Паттерны которые работают — агенты учитывают при генерации</div>
         <textarea style={{ ...s.field, minHeight: 70 }} rows={3} value={localProfile.memory || ""} onChange={e => setLocalProfile(p => ({ ...p, memory: e.target.value }))} placeholder="Мои лучшие ролики начинаются с истории провала..." />
+        <label style={{ ...s.btnOutline, ...s.btnSm, display: "inline-flex", alignItems: "center", gap: 5, marginTop: 7, cursor: "pointer" }}>
+          📎 Загрузить файл
+          <input type="file" accept=".txt,.md,text/plain" onChange={e => appendFieldFile("memory", e)} style={{ display: "none" }} />
+        </label>
       </div>
 
       {/* SAVE */}
@@ -1168,10 +1199,18 @@ function InterviewWizard({ onCancel, onComplete }) {
             <div style={{ marginBottom: 10 }}>
               <span style={s.label}>🎯 Целевая аудитория</span>
               <textarea style={{ ...s.field, minHeight: 60 }} rows={2} value={result.ca} onChange={e => setResult(r => ({ ...r, ca: e.target.value }))} />
+              <label style={{ ...s.btnOutline, ...s.btnSm, display: "inline-flex", alignItems: "center", gap: 5, marginTop: 6, cursor: "pointer" }}>
+                📎 Загрузить файл
+                <input type="file" accept=".txt,.md,text/plain" onChange={async e => { const f = e.target.files?.[0]; if (!f) return; const t = await f.text(); setResult(r => ({ ...r, ca: (r.ca ? r.ca + "\n\n" : "") + t })); e.target.value = ""; }} style={{ display: "none" }} />
+              </label>
             </div>
             <div style={{ marginBottom: 10 }}>
               <span style={s.label}>💎 Продукты и воронка</span>
               <textarea style={{ ...s.field, minHeight: 60 }} rows={2} value={result.prod} onChange={e => setResult(r => ({ ...r, prod: e.target.value }))} />
+              <label style={{ ...s.btnOutline, ...s.btnSm, display: "inline-flex", alignItems: "center", gap: 5, marginTop: 6, cursor: "pointer" }}>
+                📎 Загрузить файл
+                <input type="file" accept=".txt,.md,text/plain" onChange={async e => { const f = e.target.files?.[0]; if (!f) return; const t = await f.text(); setResult(r => ({ ...r, prod: (r.prod ? r.prod + "\n\n" : "") + t })); e.target.value = ""; }} style={{ display: "none" }} />
+              </label>
             </div>
             <div style={{ marginBottom: 16 }}>
               <span style={s.label}>🎙 Тон и стиль (TOV)</span>
