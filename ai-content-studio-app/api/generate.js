@@ -5,6 +5,12 @@ const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || '';
 const TRIAL_GENERATION_LIMIT = parseInt(process.env.TRIAL_GENERATION_LIMIT || '10', 10);
 const DAILY_GENERATION_LIMIT = parseInt(process.env.DAILY_GENERATION_LIMIT || '100', 10);
 const MAX_MESSAGE_CHARS = 6000;
+// The system prompt for the 30-day plan generator embeds the full niche
+// document (audience/products/TOV/memory/materials) and can run well past
+// MAX_MESSAGE_CHARS — truncating it there was cutting off the trailing
+// "return ONLY a JSON array" instruction, so the model replied with plain
+// text and the client's JSON parser choked on it.
+const MAX_SYSTEM_CHARS = 24000;
 
 export default async function handler(req, res) {
   if (ALLOWED_ORIGIN) {
@@ -86,7 +92,7 @@ export default async function handler(req, res) {
   }
 
   const safeMaxTokens = Math.min(parseInt(maxTokens, 10) || 1000, 8000);
-  const safeSystem = typeof system === 'string' ? system.slice(0, MAX_MESSAGE_CHARS) : undefined;
+  const safeSystem = typeof system === 'string' ? system.slice(0, MAX_SYSTEM_CHARS) : undefined;
 
   try {
     const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
