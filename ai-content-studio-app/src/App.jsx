@@ -146,10 +146,11 @@ function buildMaterialsCtx(materials, useKey, perMaterialMax = 2000, totalBudget
 // frequent calls cheap; this call is rare enough that depth matters more.
 function buildFullNicheDocument(profile) {
   let doc = "";
-  if (profile.ca) doc += `=== ЦЕЛЕВАЯ АУДИТОРИЯ ===\n${profile.ca}\n\n`;
-  if (profile.prod) doc += `=== ПРОДУКТЫ И ВОРОНКА ===\n${profile.prod}\n\n`;
-  if (profile.tov) doc += `=== ТОН И СТИЛЬ ===\n${profile.tov}\n\n`;
-  if (profile.memory) doc += `=== ПАТТЕРНЫ ===\n${profile.memory}\n\n`;
+  const ca = fieldContext(profile, "ca"), prod = fieldContext(profile, "prod"), tov = fieldContext(profile, "tov"), memory = fieldContext(profile, "memory");
+  if (ca) doc += `=== ЦЕЛЕВАЯ АУДИТОРИЯ ===\n${ca}\n\n`;
+  if (prod) doc += `=== ПРОДУКТЫ И ВОРОНКА ===\n${prod}\n\n`;
+  if (tov) doc += `=== ТОН И СТИЛЬ ===\n${tov}\n\n`;
+  if (memory) doc += `=== ПАТТЕРНЫ ===\n${memory}\n\n`;
   (profile.materials || []).forEach(m => { doc += `=== ${(m.name || "").toUpperCase()} ===\n${m.text}\n\n`; });
   return doc.trim();
 }
@@ -209,19 +210,17 @@ function Badge({ bg, color, children }) {
   return <span style={s.badge(bg, color)}>{children}</span>;
 }
 
-// ── DOCUMENT MARKERS (ca/prod/tov/memory keep the uploaded text inline in
-// the plain string field agents read, wrapped in an HTML-comment marker so
-// a single upload can be found and removed again without touching whatever
-// the user typed by hand around it) ──
 function genDocId() {
   return (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)).replace(/-/g, "").slice(0, 8);
 }
-function appendDocMarker(fieldValue, id, text) {
-  return `${fieldValue ? fieldValue + "\n\n" : ""}<!--doc:${id}-->\n${text}\n<!--/doc:${id}-->\n`;
-}
-function removeDocMarker(fieldValue, id) {
-  const re = new RegExp("\\n?<!--doc:" + id + "-->[\\s\\S]*?<!--/doc:" + id + "-->\\n?");
-  return (fieldValue || "").replace(re, "");
+// ca/prod/tov/memory stay plain strings holding only what the user typed by
+// hand — uploaded files keep their text on the {field}_files record instead,
+// so the textarea never shows raw document dumps. This combines the two for
+// agent prompts only; nothing that renders a textarea should call it.
+function fieldContext(profile, fieldId) {
+  const manual = profile[fieldId] || "";
+  const files = (profile[`${fieldId}_files`] || []).map(f => f.text).filter(Boolean).join("\n\n");
+  return [manual, files].filter(Boolean).join("\n\n");
 }
 
 // ── DOCUMENT CHIP ── list entry for an uploaded file, used under ca/prod/tov/memory and in materials
@@ -619,8 +618,10 @@ function ProfilePanel({ profile, apiKey, setApiKey, onSave }) {
   const deleteLead = (i) => setLocalProfile(p => ({ ...p, leads: p.leads.filter((_, idx) => idx !== i) }));
 
   const addMat = () => {
-    if (!matForm.name || !matForm.text) return;
-    const updated = { ...localProfile, materials: [...(localProfile.materials || []), { ...matForm }] };
+    const combinedText = [matForm.text, matForm.fileText].filter(Boolean).join("\n\n");
+    if (!matForm.name || !combinedText) return;
+    const { fileText, ...rest } = matForm;
+    const updated = { ...localProfile, materials: [...(localProfile.materials || []), { ...rest, text: combinedText }] };
     setLocalProfile(updated);
     setMatForm({ name: "", text: "", use: { idea: true, script: false, copy: false } });
     setShowAddMat(false);
@@ -634,22 +635,16 @@ function ProfilePanel({ profile, apiKey, setApiKey, onSave }) {
     e.target.value = "";
     if (file.size > MAX_FILE_SIZE) { alert(`Файл слишком большой (${formatFileSize(file.size)}). Максимум ${formatFileSize(MAX_FILE_SIZE)}.`); return; }
     const { text, fileType } = await parseFile(file);
-    const docId = genDocId();
     const filesKey = `${field}_files`;
     setLocalProfile(p => ({
       ...p,
-      [field]: appendDocMarker(p[field], docId, text),
-      [filesKey]: [...(p[filesKey] || []), { id: docId, fileName: file.name, fileType, fileSize: file.size, uploadedAt: new Date().toISOString() }],
+      [filesKey]: [...(p[filesKey] || []), { id: genDocId(), fileName: file.name, fileType, fileSize: file.size, uploadedAt: new Date().toISOString(), text }],
     }));
   };
 
   const removeFieldFile = (field, docId) => {
     const filesKey = `${field}_files`;
-    setLocalProfile(p => ({
-      ...p,
-      [field]: removeDocMarker(p[field], docId),
-      [filesKey]: (p[filesKey] || []).filter(f => f.id !== docId),
-    }));
+    setLocalProfile(p => ({ ...p, [filesKey]: (p[filesKey] || []).filter(f => f.id !== docId) }));
   };
 
   const attachMatFile = async (e) => {
@@ -658,7 +653,7 @@ function ProfilePanel({ profile, apiKey, setApiKey, onSave }) {
     e.target.value = "";
     if (file.size > MAX_FILE_SIZE) { alert(`Файл слишком большой (${formatFileSize(file.size)}). Максимум ${formatFileSize(MAX_FILE_SIZE)}.`); return; }
     const { text, fileType } = await parseFile(file);
-    setMatForm(p => ({ ...p, name: p.name || file.name.replace(/\.[^.]+$/, ""), text: (p.text ? p.text + "\n\n" : "") + text, fileName: file.name, fileType, fileSize: file.size, uploadedAt: new Date().toISOString() }));
+    setMatForm(p => ({ ...p, name: p.name || file.name.replace(/\.[^.]+$/, ""), fileText: text, fileName: file.name, fileType, fileSize: file.size, uploadedAt: new Date().toISOString() }));
   };
 
   const keyOk = apiKey.startsWith("sk-ant-");
@@ -796,7 +791,7 @@ function ProfilePanel({ profile, apiKey, setApiKey, onSave }) {
               </label>
               {matForm.fileName && (
                 <div>
-                  <DocumentChip fileName={matForm.fileName} fileType={matForm.fileType} fileSize={matForm.fileSize} onRemove={() => setMatForm(p => ({ ...p, fileName: undefined, fileType: undefined, fileSize: undefined, uploadedAt: undefined }))} />
+                  <DocumentChip fileName={matForm.fileName} fileType={matForm.fileType} fileSize={matForm.fileSize} onRemove={() => setMatForm(p => ({ ...p, fileName: undefined, fileType: undefined, fileSize: undefined, uploadedAt: undefined, fileText: undefined }))} />
                 </div>
               )}
             </div>
@@ -1494,10 +1489,10 @@ function IdeaStep({ reel, profile, reels, onUpdate, onAdvance }) {
     const lead = reel.lead_magnet_idx != null ? profile.leads?.[reel.lead_magnet_idx] : null;
     const p = PLATFORMS[reel.platform];
     let ctx = "";
-    if (profile.ca) ctx += `=== ЦА ===\n${smartTruncate(profile.ca, 2000)}\n\n`;
-    if (profile.prod) ctx += `=== ПРОДУКТЫ И ВОРОНКА ===\n${smartTruncate(profile.prod, 2000)}\n\n`;
-    if (profile.tov) ctx += `=== TOV ===\n${smartTruncate(profile.tov, 1200)}\n\n`;
-    if (profile.memory) ctx += `=== ПАТТЕРНЫ ===\n${smartTruncate(profile.memory, 1000)}\n\n`;
+    if (profile.ca || profile.ca_files?.length) ctx += `=== ЦА ===\n${smartTruncate(fieldContext(profile, "ca"), 2000)}\n\n`;
+    if (profile.prod || profile.prod_files?.length) ctx += `=== ПРОДУКТЫ И ВОРОНКА ===\n${smartTruncate(fieldContext(profile, "prod"), 2000)}\n\n`;
+    if (profile.tov || profile.tov_files?.length) ctx += `=== TOV ===\n${smartTruncate(fieldContext(profile, "tov"), 1200)}\n\n`;
+    if (profile.memory || profile.memory_files?.length) ctx += `=== ПАТТЕРНЫ ===\n${smartTruncate(fieldContext(profile, "memory"), 1000)}\n\n`;
     ctx += buildMaterialsCtx(profile.materials, "idea");
 
     return `Ты — Идеолог, стратег по вирусному контенту. Тон — честный и по делу: не хвалишь идею ради вежливости, а сразу называешь сильные и слабые стороны.\n\n${ctx}\nПлощадка: ${p?.name} · ${reel.format}\n${reel.hunt_stage ? `Ступень Ханта: ${reel.hunt_stage} (${HUNT_HINTS[reel.hunt_stage]})` : "Ступень: определи сам, исходя из площадки"}\n${existingTopics ? `Уже снятые темы (не повторяться): ${existingTopics}` : ""}\n${lead ? `Лид-магнит: ${lead.name} (${lead.link})` : ""}\n\nЕсли темы нет — задай МАКСИМУМ 1 вопрос за раз (не больше 2 за сессию): что происходит в жизни/бизнесе сейчас / какой вопрос чаще всего задают клиенты / что раздражает в нише.\n\nЕсли тема есть:\n— Предложи 2-3 угла подачи (формулы: факт+эмоция, статистика+последствие, разрушение мифа/контраст "думают VS на самом деле"). По каждому углу — одна короткая фраза, что в нём цепляет (контроверсивность/любопытство/painful/общий враг), без построчного разбора всей формулы виральности. Если угол слабый — сразу скажи, что усилить, не спрашивай "что делать"\n— Если боль в теме абстрактная — сам предложи конкретную бытовую деталь и переверни её в хук (боль → хук), не дожидаясь примера от пользователя\n— Учти тон площадки: Threads — самая резкая провокация; Instagram/TikTok — мягче, через наблюдение; Telegram — экспертно, без провокации ради провокации\n— Обоснуй, зачем снимать для воронки\n— Вопросы — по минимуму: максимум ОДИН вопрос за весь ответ, и только если без ответа реально нельзя предложить конкретный угол. Если можешь сам додумать деталь или пример — предлагай её сам вместо вопроса, не спрашивай "на всякий случай"\n\nНе выдумывай факты. Контроверсия — про мнение, не про ложь. "Общий враг" — система/привычка/миф, не человек.\n\nЕсли предлагаешь НЕСКОЛЬКО вариантов темы — оформляй их не строкой "ТЕМА:", а просто заголовками (например "Вариант 1: ..."), чтобы не путать с финальным выбором.\nСтрокой "ТЕМА: ..." начинай только когда пользователь явно выбрал или согласовал ОДНУ конкретную тему — в этой строке должна быть именно она, без номера.\n\nЕсли пользователь готов перейти к сценаристу (получено служебное сообщение о переходе), заверши диалог итоговым блоком СТРОГО в этом формате, без лишнего текста до или после:\n\n###ANGLE_START###\nУГОЛ: [номер и краткое название выбранного угла]\nОБОСНОВАНИЕ: [1-2 предложения, почему этот угол работает для этой аудитории/этапа]\nХУК: [конкретная фраза-зацепка, если она обсуждалась]\n###ANGLE_END###\n\nОтвечай кратко, по делу, на русском.`;
@@ -1631,9 +1626,9 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance }) {
     const lead = reel.lead_magnet_idx != null ? profile.leads?.[reel.lead_magnet_idx] : null;
     const finalScript = reel.selected_script >= 0 ? reel.script_versions?.[reel.selected_script] : "";
     let ctx = "";
-    if (profile.ca) ctx += `=== ЦА ===\n${smartTruncate(profile.ca, 2000)}\n\n`;
-    if (profile.prod) ctx += `=== ПРОДУКТЫ ===\n${smartTruncate(profile.prod, 2000)}\n\n`;
-    if (profile.tov) ctx += `=== TOV ===\n${smartTruncate(profile.tov, 1200)}\n\n`;
+    if (profile.ca || profile.ca_files?.length) ctx += `=== ЦА ===\n${smartTruncate(fieldContext(profile, "ca"), 2000)}\n\n`;
+    if (profile.prod || profile.prod_files?.length) ctx += `=== ПРОДУКТЫ ===\n${smartTruncate(fieldContext(profile, "prod"), 2000)}\n\n`;
+    if (profile.tov || profile.tov_files?.length) ctx += `=== TOV ===\n${smartTruncate(fieldContext(profile, "tov"), 1200)}\n\n`;
     ctx += buildMaterialsCtx(profile.materials, "script");
 
     const ideaSummary = (reel.idea_chat || []).filter(m => m.role !== "note").slice(-3).map(m => `${m.role === "user" ? "Пользователь" : "Идеолог"}: ${m.content}`).join("\n").substring(0, 500);
@@ -1814,9 +1809,9 @@ function CopyStep({ reel, profile, onUpdate }) {
 
   const getCtx = () => {
     let ctx = "";
-    if (profile.ca) ctx += `=== ЦА ===\n${smartTruncate(profile.ca, 2000)}\n\n`;
-    if (profile.prod) ctx += `=== ПРОДУКТЫ ===\n${smartTruncate(profile.prod, 2000)}\n\n`;
-    if (profile.tov) ctx += `=== TOV ===\n${smartTruncate(profile.tov, 1200)}\n\n`;
+    if (profile.ca || profile.ca_files?.length) ctx += `=== ЦА ===\n${smartTruncate(fieldContext(profile, "ca"), 2000)}\n\n`;
+    if (profile.prod || profile.prod_files?.length) ctx += `=== ПРОДУКТЫ ===\n${smartTruncate(fieldContext(profile, "prod"), 2000)}\n\n`;
+    if (profile.tov || profile.tov_files?.length) ctx += `=== TOV ===\n${smartTruncate(fieldContext(profile, "tov"), 1200)}\n\n`;
     ctx += buildMaterialsCtx(profile.materials, "copy");
     const scriptSummary = (reel.script_chat || []).slice(-2).map(m => `${m.role === "user" ? "Пользователь" : "Сценарист"}: ${m.content}`).join("\n").substring(0, 400);
     if (scriptSummary) ctx += `=== ОБСУЖДЕНИЕ ПРИ ПРАВКЕ СЦЕНАРИЯ (детали, которых нет в финальном тексте) ===\n${scriptSummary}\n\n`;
@@ -1849,7 +1844,7 @@ function CopyStep({ reel, profile, onUpdate }) {
     const key = reel.platform;
     const platInstr = (profile.platInstr || DEFAULT_PLAT_INSTR)[key] || DEFAULT_PLAT_INSTR[key] || "";
     const fullScript = needsFullScript(key);
-    const system = `Ты — Копирайтер. TOV: ${profile.tov?.substring(0, 250) || ""}. Инструкция площадки ${PLATFORMS[key]?.name}: ${platInstr}.\n${getCtx()}\n${reel.hunt_stage ? `Ступень Ханта: ${reel.hunt_stage} — тон CTA: 1-2 мягкий (сохранить/подписаться), 3 интерес к методу, 4-5 прямой оффер с конкретикой.` : ""}\n${key === "tt" ? "overlay — короткий текст НА видео (6-8 слов), caption — развёрнутый текст под видео." : ""}${key === "th" ? "Ссылку клади в link_comment, не в text — так принято в Threads." : ""}\n${bonusStructureInstr(key)}${fullScript ? `\n${fullScriptInstr}` : ""}\nПолезность пиши конкретно, без слов "полезно"/"качественный"/"уникальный" без опоры на факт. CTA — до 15 слов, без давления, на основе реальной пользы лид-магнита. Без канцеляризмов и конструкций "не X, а Y".\nОтвечай JSON без текста.`;
+    const system = `Ты — Копирайтер. TOV: ${smartTruncate(fieldContext(profile, "tov"), 250)}. Инструкция площадки ${PLATFORMS[key]?.name}: ${platInstr}.\n${getCtx()}\n${reel.hunt_stage ? `Ступень Ханта: ${reel.hunt_stage} — тон CTA: 1-2 мягкий (сохранить/подписаться), 3 интерес к методу, 4-5 прямой оффер с конкретикой.` : ""}\n${key === "tt" ? "overlay — короткий текст НА видео (6-8 слов), caption — развёрнутый текст под видео." : ""}${key === "th" ? "Ссылку клади в link_comment, не в text — так принято в Threads." : ""}\n${bonusStructureInstr(key)}${fullScript ? `\n${fullScriptInstr}` : ""}\nПолезность пиши конкретно, без слов "полезно"/"качественный"/"уникальный" без опоры на факт. CTA — до 15 слов, без давления, на основе реальной пользы лид-магнита. Без канцеляризмов и конструкций "не X, а Y".\nОтвечай JSON без текста.`;
     const fmt = fullScript ? (scriptFmts[key] || baseFmts[key]) : baseFmts[key];
     try {
       const raw = await callAPI([{ role: "user", content: `Напиши описание для ${PLATFORMS[key]?.name}.\n\nСценарий: ${script}\nЗаметки: ${reel.notes || "нет"}\n${lead ? `Лид-магнит: ${lead.name} · ${lead.link}` : ""}\n\nJSON: ${fmt}` }], system, fullScript ? 1800 : 1000);
@@ -1863,7 +1858,7 @@ function CopyStep({ reel, profile, onUpdate }) {
     setLoading(true);
     const lead = getLead();
     const instrBlock = Object.entries(profile.platInstr || DEFAULT_PLAT_INSTR).map(([k, v]) => `${PLATFORMS[k]?.name}: ${v.substring(0, 120)}`).join("\n\n");
-    const system = `Ты — Копирайтер. TOV: ${profile.tov?.substring(0, 250) || ""}.\n${getCtx()}\nИнструкции:\n${instrBlock}.\n${reel.hunt_stage ? `Ступень Ханта: ${reel.hunt_stage} — тон CTA: 1-2 мягкий, 3 интерес к методу, 4-5 прямой оффер.` : ""}\nДля TikTok (tt): overlay — короткий текст НА видео (6-8 слов), caption — текст под видео. Для Threads (th): ссылку клади в link_comment, не в text.\nДля площадок, где описание физически отдельно от видео (tt, yt, а также ig если формат ролика — Reels) — не пересказывай видео в описании: 1) короткая зацепка, обещающая доп. пользу 2) самостоятельная бонусная польза — список/чек-лист/лайфхак, которого нет в видео 3) CTA по ступени Ханта (1-2 мягко+сохрани, 3 интерес к методу, 4-5 бонус ведёт к офферу). Для остальных площадок (tg, th, vk, ig не-Reels) — структура описание/полезность/лид-магнит+CTA не меняется.\n${!sourceIsVideo ? fullScriptInstr + " Это касается только tt и yt." : ""}\nПолезность — конкретно, без общих слов без опоры на факт. CTA — до 15 слов, без давления. Без канцеляризмов и штампов "и вот почему"/"но есть нюанс".\nОтвечай JSON.`;
+    const system = `Ты — Копирайтер. TOV: ${smartTruncate(fieldContext(profile, "tov"), 250)}.\n${getCtx()}\nИнструкции:\n${instrBlock}.\n${reel.hunt_stage ? `Ступень Ханта: ${reel.hunt_stage} — тон CTA: 1-2 мягкий, 3 интерес к методу, 4-5 прямой оффер.` : ""}\nДля TikTok (tt): overlay — короткий текст НА видео (6-8 слов), caption — текст под видео. Для Threads (th): ссылку клади в link_comment, не в text.\nДля площадок, где описание физически отдельно от видео (tt, yt, а также ig если формат ролика — Reels) — не пересказывай видео в описании: 1) короткая зацепка, обещающая доп. пользу 2) самостоятельная бонусная польза — список/чек-лист/лайфхак, которого нет в видео 3) CTA по ступени Ханта (1-2 мягко+сохрани, 3 интерес к методу, 4-5 бонус ведёт к офферу). Для остальных площадок (tg, th, vk, ig не-Reels) — структура описание/полезность/лид-магнит+CTA не меняется.\n${!sourceIsVideo ? fullScriptInstr + " Это касается только tt и yt." : ""}\nПолезность — конкретно, без общих слов без опоры на факт. CTA — до 15 слов, без давления. Без канцеляризмов и штампов "и вот почему"/"но есть нюанс".\nОтвечай JSON.`;
     const jsonShape = sourceIsVideo
       ? `{"ig":{"caption":"...","cta":"..."},"yt":{"title":"...","description":"...","tags":["..."]},"tg":{"caption":"..."},"tt":{"overlay":"...","caption":"..."},"th":{"text":"...","link_comment":"..."},"vk":{"caption":"..."}}`
       : `{"ig":{"caption":"...","cta":"..."},"yt":{"script":"...","title":"...","description":"...","tags":["..."]},"tg":{"caption":"..."},"tt":{"script":"...","overlay":"...","caption":"..."},"th":{"text":"...","link_comment":"..."},"vk":{"caption":"..."}}`;
@@ -1880,7 +1875,7 @@ function CopyStep({ reel, profile, onUpdate }) {
     const lead = getLead();
     const platInstr = (profile.platInstr || DEFAULT_PLAT_INSTR)[key] || DEFAULT_PLAT_INSTR[key] || "";
     const fullScript = needsFullScript(key);
-    const system = `Ты — Копирайтер для ${PLATFORMS[key]?.name}. TOV: ${profile.tov?.substring(0, 200) || ""}. Инструкция: ${platInstr}.\n${getCtx()}\n${reel.hunt_stage ? `Ступень Ханта: ${reel.hunt_stage} — тон CTA: 1-2 мягкий, 3 интерес к методу, 4-5 прямой оффер.` : ""}\n${key === "tt" ? "overlay — короткий текст НА видео (6-8 слов), caption — текст под видео." : ""}${key === "th" ? "Ссылку клади в link_comment, не в text." : ""}\n${bonusStructureInstr(key)}${fullScript ? `\n${fullScriptInstr}` : ""}\nКонкретная польза, CTA до 15 слов без давления, без канцеляризмов.\nОтвечай JSON.`;
+    const system = `Ты — Копирайтер для ${PLATFORMS[key]?.name}. TOV: ${smartTruncate(fieldContext(profile, "tov"), 200)}. Инструкция: ${platInstr}.\n${getCtx()}\n${reel.hunt_stage ? `Ступень Ханта: ${reel.hunt_stage} — тон CTA: 1-2 мягкий, 3 интерес к методу, 4-5 прямой оффер.` : ""}\n${key === "tt" ? "overlay — короткий текст НА видео (6-8 слов), caption — текст под видео." : ""}${key === "th" ? "Ссылку клади в link_comment, не в text." : ""}\n${bonusStructureInstr(key)}${fullScript ? `\n${fullScriptInstr}` : ""}\nКонкретная польза, CTA до 15 слов без давления, без канцеляризмов.\nОтвечай JSON.`;
     const fmt = fullScript ? (scriptFmts[key] || baseFmts[key]) : baseFmts[key];
     try {
       const raw = await callAPI([{ role: "user", content: `Текст для ${PLATFORMS[key]?.name}.\nСценарий: ${script}\n${lead ? `Лид-магнит: ${lead.name} · ${lead.link}` : ""}\n\nJSON: ${fmt}` }], system, fullScript ? 1600 : 900);
