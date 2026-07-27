@@ -924,7 +924,8 @@ function buildPlanSystem(typeLabel, fullDoc, platformNames) {
 ВХОДНЫЕ ДАННЫЕ:
 Тип профиля: ${typeLabel}
 Бриф/документ ниши: ${fullDoc || "(пусто)"}
-Платформы клиента: ${platformNames}
+ПЛОЩАДКИ: используй ТОЛЬКО следующие, и никакие другие ни при каких условиях: ${platformNames}.
+Даже если тема органично подошла бы другой площадке — не используй её, выбери из списка выше. Значение "platform" в каждом объекте JSON должно быть ТОЛЬКО одним из этих названий, дословно.
 
 ${planDepthRules(typeLabel)}
 
@@ -1022,13 +1023,17 @@ function PlanTab({ profile, onUpdateProfile, onWritePost }) {
       if (!raw) throw new Error("Агент вернул пустой ответ. Попробуй ещё раз.");
       const rows = parseJSONArray(raw);
       const nameToKey = Object.fromEntries(Object.entries(PLATFORMS).map(([key, p]) => [p.name, key]));
-      const items = rows.slice(0, 30).map((it, i) => ({
-        day: Number(it.day) || i + 1,
-        platform: nameToKey[it.platform] || selectedPlatforms[i % selectedPlatforms.length],
-        topic: it.topic || "",
-        stage: Math.min(5, Math.max(1, Number(it.stage) || 1)),
-        anchor: it["опора"] || it.opora || it.anchor || "",
-      }));
+      const items = rows.slice(0, 30).map((it, i) => {
+        const mapped = nameToKey[it.platform];
+        const platform = (mapped && selectedPlatforms.includes(mapped)) ? mapped : selectedPlatforms[i % selectedPlatforms.length];
+        return {
+          day: Number(it.day) || i + 1,
+          platform,
+          topic: it.topic || "",
+          stage: Math.min(5, Math.max(1, Number(it.stage) || 1)),
+          anchor: it["опора"] || it.opora || it.anchor || "",
+        };
+      });
       onUpdateProfile({ contentPlan: { platforms: selectedPlatforms, items, generatedAt: new Date().toISOString() } });
     } catch (e) {
       setError(e.message || "Ошибка запроса");
