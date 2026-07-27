@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import mammoth from "mammoth";
 
 // ── window.storage shim (Claude.ai artifact API) — falls back to localStorage outside the sandbox ──
 if (typeof window !== "undefined" && !window.storage) {
@@ -62,6 +63,26 @@ async function sSet(key, val) {
   try { await window.storage.set(key, JSON.stringify(val)); } catch (e) { console.warn(e); }
 }
 
+// ── FILE UPLOAD ──
+const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB — the whole profile (all niches) lives in localStorage's shared quota
+function formatFileSize(bytes) {
+  if (bytes < 1024) return `${bytes} Б`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} КБ`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
+}
+// Single entry point for reading an uploaded document into plain text,
+// shared by every upload control in the profile (ca/prod/tov/memory/materials).
+async function parseFile(file) {
+  const ext = file.name.split(".").pop().toLowerCase();
+  if (ext === "docx") {
+    const buf = await file.arrayBuffer();
+    const { value } = await mammoth.extractRawText({ arrayBuffer: buf });
+    return { text: value, fileType: "docx" };
+  }
+  return { text: await file.text(), fileType: ext === "md" ? "md" : "txt" };
+}
+const FILE_ACCEPT = ".txt,.md,text/plain,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
 // ── API ──
 function getClientId() {
   let id = localStorage.getItem("acs3-client-id");
@@ -96,6 +117,29 @@ function parseJSONArray(raw) {
   const m = raw.match(/\[[\s\S]*\]/);
   if (m) { const v = JSON.parse(m[0]); if (Array.isArray(v)) return v; }
   throw new Error("Не удалось разобрать ответ агента");
+}
+// Cuts at the nearest paragraph/sentence break instead of mid-word, so
+// agents see a coherent excerpt rather than a truncated fragment.
+function smartTruncate(text, maxChars) {
+  if (!text || text.length <= maxChars) return text || "";
+  const cut = text.slice(0, maxChars);
+  const lastBreak = Math.max(cut.lastIndexOf("\n\n"), cut.lastIndexOf(". "));
+  return (lastBreak > maxChars * 0.5 ? cut.slice(0, lastBreak + 1) : cut) + "…";
+}
+// Materials flagged for this step are included whole (up to perMaterialMax
+// each) in order, until the combined total would exceed totalBudget — the
+// rest are skipped entirely rather than each shaved down to an unreadable
+// stub.
+function buildMaterialsCtx(materials, useKey, perMaterialMax = 2000, totalBudget = 6000) {
+  let ctx = "";
+  let used = 0;
+  for (const m of (materials || []).filter(x => x.use?.[useKey])) {
+    const piece = smartTruncate(m.text, perMaterialMax);
+    if (used + piece.length > totalBudget) break;
+    ctx += `=== ${m.name.toUpperCase()} ===\n${piece}\n\n`;
+    used += piece.length;
+  }
+  return ctx;
 }
 // Full, untruncated niche document — used only for the once-a-month plan
 // call. Per-post generation elsewhere truncates profile fields to keep
@@ -165,7 +209,34 @@ function Badge({ bg, color, children }) {
   return <span style={s.badge(bg, color)}>{children}</span>;
 }
 
-const EMPTY_PROFILE_FIELDS = { ca: "", prod: "", tov: "", memory: "", leads: [], materials: [], platInstr: { ...DEFAULT_PLAT_INSTR }, huntStage: null, profileType: "manual", contentPlan: null };
+// ── DOCUMENT MARKERS (ca/prod/tov/memory keep the uploaded text inline in
+// the plain string field agents read, wrapped in an HTML-comment marker so
+// a single upload can be found and removed again without touching whatever
+// the user typed by hand around it) ──
+function genDocId() {
+  return (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)).replace(/-/g, "").slice(0, 8);
+}
+function appendDocMarker(fieldValue, id, text) {
+  return `${fieldValue ? fieldValue + "\n\n" : ""}<!--doc:${id}-->\n${text}\n<!--/doc:${id}-->\n`;
+}
+function removeDocMarker(fieldValue, id) {
+  const re = new RegExp("\\n?<!--doc:" + id + "-->[\\s\\S]*?<!--/doc:" + id + "-->\\n?");
+  return (fieldValue || "").replace(re, "");
+}
+
+// ── DOCUMENT CHIP ── list entry for an uploaded file, used under ca/prod/tov/memory and in materials
+function DocumentChip({ fileName, fileType, fileSize, onRemove }) {
+  return (
+    <div style={{ display: "inline-flex", alignItems: "center", gap: 5, background: COLORS.white, border: `1.5px solid ${COLORS.brd}`, borderRadius: 7, padding: "3px 7px", fontSize: 10, color: COLORS.brownS, marginTop: 5, marginRight: 5 }}>
+      <span>{fileType === "docx" ? "📘" : "📄"}</span>
+      <span style={{ fontWeight: 600, color: COLORS.brown }}>{fileName}</span>
+      {fileSize != null && <span>· {formatFileSize(fileSize)}</span>}
+      {onRemove && <button onClick={onRemove} title="Удалить" style={{ background: "none", border: "none", color: COLORS.brownS, cursor: "pointer", fontSize: 11, padding: 0, marginLeft: 2, lineHeight: 1 }}>✕</button>}
+    </div>
+  );
+}
+
+const EMPTY_PROFILE_FIELDS = { ca: "", prod: "", tov: "", memory: "", ca_files: [], prod_files: [], tov_files: [], memory_files: [], leads: [], materials: [], platInstr: { ...DEFAULT_PLAT_INSTR }, huntStage: null, profileType: "manual", contentPlan: null };
 function makeProfile(data) {
   return { id: "p-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: "Новая ниша", ...EMPTY_PROFILE_FIELDS, ...data, platInstr: { ...DEFAULT_PLAT_INSTR, ...(data.platInstr || {}) } };
 }
@@ -221,7 +292,16 @@ export default function App() {
       setActiveProfileId(validActive);
       if (list.length === 0) setOnboarding("choice");
       const r = await sGet("acs3-reels");
-      if (r) setReels(r);
+      if (r) {
+        // One-off migration: reels predating per-niche isolation have no
+        // profileId — attach them to whichever profile is active (or the
+        // first one) instead of silently orphaning them off the board.
+        const fallbackProfileId = validActive || list[0]?.id || null;
+        const needsMigration = r.some(x => !x.profileId);
+        const migrated = needsMigration ? r.map(x => x.profileId ? x : { ...x, profileId: fallbackProfileId }) : r;
+        setReels(migrated);
+        if (needsMigration) saveReels(migrated);
+      }
       const k = localStorage.getItem("acs3-key") || "";
       setApiKey(k);
     })();
@@ -289,10 +369,14 @@ export default function App() {
 
   const currentReel = reels.find(r => r.id === cardId);
   const deleteBoardCard = reels.find(r => r.id === deleteBoardCardId);
+  // Board, reminders, and everything downstream (existing-topics checks,
+  // due/overdue banners) must only ever see the active niche's own reels —
+  // reels themselves aren't per-profile storage, just tagged with profileId.
+  const profileReels = reels.filter(r => r.profileId === activeProfileId);
 
   const todayStr = new Date().toISOString().slice(0, 10);
-  const dueToday = reels.filter(r => r.publish_date === todayStr && r.status !== "published");
-  const overdue = reels.filter(r => r.publish_date && r.publish_date < todayStr && r.status !== "published");
+  const dueToday = profileReels.filter(r => r.publish_date === todayStr && r.status !== "published");
+  const overdue = profileReels.filter(r => r.publish_date && r.publish_date < todayStr && r.status !== "published");
 
   return (
     <div style={{ fontFamily: "system-ui, sans-serif", background: COLORS.cream, minHeight: "100vh", color: COLORS.brown, fontSize: 13 }}>
@@ -370,14 +454,14 @@ export default function App() {
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
             <div>
               <div style={{ fontSize: 18, fontWeight: 800, color: COLORS.brown }}>Производственная доска</div>
-              <div style={{ fontSize: 11, color: COLORS.brownS }}>{reels.length ? `${reels.length} ролик(ов) в работе` : "Нажми «+ Новый ролик» чтобы начать"}</div>
+              <div style={{ fontSize: 11, color: COLORS.brownS }}>{profileReels.length ? `${profileReels.length} ролик(ов) в работе` : "Нажми «+ Новый ролик» чтобы начать"}</div>
             </div>
             <button style={s.btnRose} onClick={() => setShowNewCard(true)}>+ Новый ролик</button>
           </div>
           <div style={{ overflowX: "auto", paddingBottom: 6 }}>
             <div style={{ display: "flex", gap: 10, minWidth: 800 }}>
               {STATUSES.map(st => {
-                const cards = reels.filter(r => r.status === st.key);
+                const cards = profileReels.filter(r => r.status === st.key);
                 return (
                   <div key={st.key} style={{ background: COLORS.roseP, borderRadius: 12, padding: 10, minWidth: 185, flex: 1 }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
@@ -431,7 +515,7 @@ export default function App() {
           onUpdateProfile={(p) => updateActiveProfile(p)}
           onWritePost={(item) => {
             const p = PLATFORMS[item.platform] || PLATFORMS.ig;
-            const reel = makeReel({ platform: item.platform, format: p.formats[0], hunt: item.stage, topic: item.topic });
+            const reel = { ...makeReel({ platform: item.platform, format: p.formats[0], hunt: item.stage, topic: item.topic }), profileId: activeProfileId };
             setReels(prev => { const u = [reel, ...prev]; saveReels(u); return u; });
             setCardId(reel.id);
           }}
@@ -467,7 +551,7 @@ export default function App() {
           <div style={s.modal}>
             <button onClick={() => setCardId(null)} style={{ position: "absolute", top: 12, right: 12, background: COLORS.cream, border: `1.5px solid ${COLORS.brd}`, borderRadius: 6, width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: COLORS.brownS, cursor: "pointer" }}>✕</button>
             <CardModal
-              reel={currentReel} profile={profile} reels={reels}
+              reel={currentReel} profile={profile} reels={profileReels}
               onUpdate={(changes) => updateReel(cardId, changes)}
               onDelete={() => deleteReel(cardId)}
             />
@@ -544,20 +628,37 @@ function ProfilePanel({ profile, apiKey, setApiKey, onSave }) {
 
   const deleteMat = (i) => setLocalProfile(p => ({ ...p, materials: p.materials.filter((_, idx) => idx !== i) }));
 
-  const appendFieldFile = async (id, e) => {
+  const appendFieldFile = async (field, e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const text = await file.text();
-    setLocalProfile(p => ({ ...p, [id]: (p[id] ? p[id] + "\n\n" : "") + text }));
     e.target.value = "";
+    if (file.size > MAX_FILE_SIZE) { alert(`Файл слишком большой (${formatFileSize(file.size)}). Максимум ${formatFileSize(MAX_FILE_SIZE)}.`); return; }
+    const { text, fileType } = await parseFile(file);
+    const docId = genDocId();
+    const filesKey = `${field}_files`;
+    setLocalProfile(p => ({
+      ...p,
+      [field]: appendDocMarker(p[field], docId, text),
+      [filesKey]: [...(p[filesKey] || []), { id: docId, fileName: file.name, fileType, fileSize: file.size, uploadedAt: new Date().toISOString() }],
+    }));
+  };
+
+  const removeFieldFile = (field, docId) => {
+    const filesKey = `${field}_files`;
+    setLocalProfile(p => ({
+      ...p,
+      [field]: removeDocMarker(p[field], docId),
+      [filesKey]: (p[filesKey] || []).filter(f => f.id !== docId),
+    }));
   };
 
   const attachMatFile = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const text = await file.text();
-    setMatForm(p => ({ ...p, name: p.name || file.name.replace(/\.[^.]+$/, ""), text: (p.text ? p.text + "\n\n" : "") + text }));
     e.target.value = "";
+    if (file.size > MAX_FILE_SIZE) { alert(`Файл слишком большой (${formatFileSize(file.size)}). Максимум ${formatFileSize(MAX_FILE_SIZE)}.`); return; }
+    const { text, fileType } = await parseFile(file);
+    setMatForm(p => ({ ...p, name: p.name || file.name.replace(/\.[^.]+$/, ""), text: (p.text ? p.text + "\n\n" : "") + text, fileName: file.name, fileType, fileSize: file.size, uploadedAt: new Date().toISOString() }));
   };
 
   const keyOk = apiKey.startsWith("sk-ant-");
@@ -593,8 +694,15 @@ function ProfilePanel({ profile, apiKey, setApiKey, onSave }) {
             <textarea style={{ ...s.field, minHeight: 110 }} rows={5} value={localProfile[f.id] || ""} onChange={e => setLocalProfile(p => ({ ...p, [f.id]: e.target.value }))} />
             <label style={{ ...s.btnOutline, ...s.btnSm, display: "inline-flex", alignItems: "center", gap: 5, marginTop: 7, cursor: "pointer" }}>
               📎 Загрузить файл
-              <input type="file" accept=".txt,.md,text/plain" onChange={e => appendFieldFile(f.id, e)} style={{ display: "none" }} />
+              <input type="file" accept={FILE_ACCEPT} onChange={e => appendFieldFile(f.id, e)} style={{ display: "none" }} />
             </label>
+            {(localProfile[`${f.id}_files`] || []).length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap" }}>
+                {localProfile[`${f.id}_files`].map(doc => (
+                  <DocumentChip key={doc.id} {...doc} onRemove={() => removeFieldFile(f.id, doc.id)} />
+                ))}
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -653,10 +761,14 @@ function ProfilePanel({ profile, apiKey, setApiKey, onSave }) {
         </div>
         {(localProfile.materials || []).map((m, i) => (
           <div key={i} style={{ background: COLORS.white, border: `1.5px solid ${COLORS.brd}`, borderRadius: 9, padding: "8px 11px", display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 6 }}>
-            <span style={{ fontSize: 16 }}>📄</span>
+            <span style={{ fontSize: 16 }}>{m.fileType === "docx" ? "📘" : "📄"}</span>
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 700, fontSize: 12 }}>{m.name}</div>
-              <div style={{ fontSize: 10, color: COLORS.brownS, marginTop: 1 }}>{m.text.substring(0, 80)}...</div>
+              {m.fileName ? (
+                <div style={{ fontSize: 10, color: COLORS.brownS, marginTop: 1 }}>{m.fileName}{m.fileSize != null ? ` · ${formatFileSize(m.fileSize)}` : ""}</div>
+              ) : (
+                <div style={{ fontSize: 10, color: COLORS.brownS, marginTop: 1 }}>{m.text.substring(0, 80)}...</div>
+              )}
             </div>
             <button onClick={() => deleteMat(i)} style={{ background: "none", border: "none", color: COLORS.brownS, cursor: "pointer", fontSize: 12 }}>✕</button>
           </div>
@@ -680,8 +792,13 @@ function ProfilePanel({ profile, apiKey, setApiKey, onSave }) {
               <textarea style={{ ...s.field, minHeight: 70 }} rows={3} value={matForm.text} onChange={e => setMatForm(p => ({ ...p, text: e.target.value }))} placeholder="Вставь текст или загрузи файл..." />
               <label style={{ ...s.btnOutline, ...s.btnSm, display: "inline-flex", alignItems: "center", gap: 5, marginTop: 6, cursor: "pointer" }}>
                 📎 Загрузить файл
-                <input type="file" accept=".txt,.md,text/plain" onChange={attachMatFile} style={{ display: "none" }} />
+                <input type="file" accept={FILE_ACCEPT} onChange={attachMatFile} style={{ display: "none" }} />
               </label>
+              {matForm.fileName && (
+                <div>
+                  <DocumentChip fileName={matForm.fileName} fileType={matForm.fileType} fileSize={matForm.fileSize} onRemove={() => setMatForm(p => ({ ...p, fileName: undefined, fileType: undefined, fileSize: undefined, uploadedAt: undefined }))} />
+                </div>
+              )}
             </div>
             <div style={{ display: "flex", gap: 6 }}>
               <button style={{ ...s.btnRose, ...s.btnSm }} onClick={addMat}>Сохранить</button>
@@ -698,8 +815,15 @@ function ProfilePanel({ profile, apiKey, setApiKey, onSave }) {
         <textarea style={{ ...s.field, minHeight: 70 }} rows={3} value={localProfile.memory || ""} onChange={e => setLocalProfile(p => ({ ...p, memory: e.target.value }))} placeholder="Мои лучшие ролики начинаются с истории провала..." />
         <label style={{ ...s.btnOutline, ...s.btnSm, display: "inline-flex", alignItems: "center", gap: 5, marginTop: 7, cursor: "pointer" }}>
           📎 Загрузить файл
-          <input type="file" accept=".txt,.md,text/plain" onChange={e => appendFieldFile("memory", e)} style={{ display: "none" }} />
+          <input type="file" accept={FILE_ACCEPT} onChange={e => appendFieldFile("memory", e)} style={{ display: "none" }} />
         </label>
+        {(localProfile.memory_files || []).length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap" }}>
+            {localProfile.memory_files.map(doc => (
+              <DocumentChip key={doc.id} {...doc} onRemove={() => removeFieldFile("memory", doc.id)} />
+            ))}
+          </div>
+        )}
       </div>
 
       {/* SAVE */}
@@ -1201,7 +1325,7 @@ function InterviewWizard({ onCancel, onComplete }) {
               <textarea style={{ ...s.field, minHeight: 60 }} rows={2} value={result.ca} onChange={e => setResult(r => ({ ...r, ca: e.target.value }))} />
               <label style={{ ...s.btnOutline, ...s.btnSm, display: "inline-flex", alignItems: "center", gap: 5, marginTop: 6, cursor: "pointer" }}>
                 📎 Загрузить файл
-                <input type="file" accept=".txt,.md,text/plain" onChange={async e => { const f = e.target.files?.[0]; if (!f) return; const t = await f.text(); setResult(r => ({ ...r, ca: (r.ca ? r.ca + "\n\n" : "") + t })); e.target.value = ""; }} style={{ display: "none" }} />
+                <input type="file" accept={FILE_ACCEPT} onChange={async e => { const f = e.target.files?.[0]; if (!f) return; e.target.value = ""; if (f.size > MAX_FILE_SIZE) { alert(`Файл слишком большой (${formatFileSize(f.size)}). Максимум ${formatFileSize(MAX_FILE_SIZE)}.`); return; } const { text } = await parseFile(f); setResult(r => ({ ...r, ca: (r.ca ? r.ca + "\n\n" : "") + text })); }} style={{ display: "none" }} />
               </label>
             </div>
             <div style={{ marginBottom: 10 }}>
@@ -1209,7 +1333,7 @@ function InterviewWizard({ onCancel, onComplete }) {
               <textarea style={{ ...s.field, minHeight: 60 }} rows={2} value={result.prod} onChange={e => setResult(r => ({ ...r, prod: e.target.value }))} />
               <label style={{ ...s.btnOutline, ...s.btnSm, display: "inline-flex", alignItems: "center", gap: 5, marginTop: 6, cursor: "pointer" }}>
                 📎 Загрузить файл
-                <input type="file" accept=".txt,.md,text/plain" onChange={async e => { const f = e.target.files?.[0]; if (!f) return; const t = await f.text(); setResult(r => ({ ...r, prod: (r.prod ? r.prod + "\n\n" : "") + t })); e.target.value = ""; }} style={{ display: "none" }} />
+                <input type="file" accept={FILE_ACCEPT} onChange={async e => { const f = e.target.files?.[0]; if (!f) return; e.target.value = ""; if (f.size > MAX_FILE_SIZE) { alert(`Файл слишком большой (${formatFileSize(f.size)}). Максимум ${formatFileSize(MAX_FILE_SIZE)}.`); return; } const { text } = await parseFile(f); setResult(r => ({ ...r, prod: (r.prod ? r.prod + "\n\n" : "") + text })); }} style={{ display: "none" }} />
               </label>
             </div>
             <div style={{ marginBottom: 16 }}>
@@ -1235,7 +1359,7 @@ function NewCardModal({ profile, onClose, onCreate }) {
   const fmts = PLATFORMS[platform]?.formats || [];
 
   const create = () => {
-    const reel = { ...makeReel({ platform, format, hunt, topic }), lead_magnet_idx: leadIdx !== "" ? parseInt(leadIdx) : null };
+    const reel = { ...makeReel({ platform, format, hunt, topic }), profileId: profile.id, lead_magnet_idx: leadIdx !== "" ? parseInt(leadIdx) : null };
     onCreate(reel);
   };
 
@@ -1370,11 +1494,11 @@ function IdeaStep({ reel, profile, reels, onUpdate, onAdvance }) {
     const lead = reel.lead_magnet_idx != null ? profile.leads?.[reel.lead_magnet_idx] : null;
     const p = PLATFORMS[reel.platform];
     let ctx = "";
-    if (profile.ca) ctx += `=== ЦА ===\n${profile.ca.substring(0, 500)}\n\n`;
-    if (profile.prod) ctx += `=== ПРОДУКТЫ И ВОРОНКА ===\n${profile.prod.substring(0, 500)}\n\n`;
-    if (profile.tov) ctx += `=== TOV ===\n${profile.tov.substring(0, 300)}\n\n`;
-    if (profile.memory) ctx += `=== ПАТТЕРНЫ ===\n${profile.memory.substring(0, 200)}\n\n`;
-    (profile.materials || []).filter(m => m.use?.idea).forEach(m => { ctx += `=== ${m.name.toUpperCase()} ===\n${m.text.substring(0, 300)}\n\n`; });
+    if (profile.ca) ctx += `=== ЦА ===\n${smartTruncate(profile.ca, 2000)}\n\n`;
+    if (profile.prod) ctx += `=== ПРОДУКТЫ И ВОРОНКА ===\n${smartTruncate(profile.prod, 2000)}\n\n`;
+    if (profile.tov) ctx += `=== TOV ===\n${smartTruncate(profile.tov, 1200)}\n\n`;
+    if (profile.memory) ctx += `=== ПАТТЕРНЫ ===\n${smartTruncate(profile.memory, 1000)}\n\n`;
+    ctx += buildMaterialsCtx(profile.materials, "idea");
 
     return `Ты — Идеолог, стратег по вирусному контенту. Тон — честный и по делу: не хвалишь идею ради вежливости, а сразу называешь сильные и слабые стороны.\n\n${ctx}\nПлощадка: ${p?.name} · ${reel.format}\n${reel.hunt_stage ? `Ступень Ханта: ${reel.hunt_stage} (${HUNT_HINTS[reel.hunt_stage]})` : "Ступень: определи сам, исходя из площадки"}\n${existingTopics ? `Уже снятые темы (не повторяться): ${existingTopics}` : ""}\n${lead ? `Лид-магнит: ${lead.name} (${lead.link})` : ""}\n\nЕсли темы нет — задай МАКСИМУМ 1 вопрос за раз (не больше 2 за сессию): что происходит в жизни/бизнесе сейчас / какой вопрос чаще всего задают клиенты / что раздражает в нише.\n\nЕсли тема есть:\n— Предложи 2-3 угла подачи (формулы: факт+эмоция, статистика+последствие, разрушение мифа/контраст "думают VS на самом деле"). По каждому углу — одна короткая фраза, что в нём цепляет (контроверсивность/любопытство/painful/общий враг), без построчного разбора всей формулы виральности. Если угол слабый — сразу скажи, что усилить, не спрашивай "что делать"\n— Если боль в теме абстрактная — сам предложи конкретную бытовую деталь и переверни её в хук (боль → хук), не дожидаясь примера от пользователя\n— Учти тон площадки: Threads — самая резкая провокация; Instagram/TikTok — мягче, через наблюдение; Telegram — экспертно, без провокации ради провокации\n— Обоснуй, зачем снимать для воронки\n— Вопросы — по минимуму: максимум ОДИН вопрос за весь ответ, и только если без ответа реально нельзя предложить конкретный угол. Если можешь сам додумать деталь или пример — предлагай её сам вместо вопроса, не спрашивай "на всякий случай"\n\nНе выдумывай факты. Контроверсия — про мнение, не про ложь. "Общий враг" — система/привычка/миф, не человек.\n\nЕсли предлагаешь НЕСКОЛЬКО вариантов темы — оформляй их не строкой "ТЕМА:", а просто заголовками (например "Вариант 1: ..."), чтобы не путать с финальным выбором.\nСтрокой "ТЕМА: ..." начинай только когда пользователь явно выбрал или согласовал ОДНУ конкретную тему — в этой строке должна быть именно она, без номера.\n\nЕсли пользователь готов перейти к сценаристу (получено служебное сообщение о переходе), заверши диалог итоговым блоком СТРОГО в этом формате, без лишнего текста до или после:\n\n###ANGLE_START###\nУГОЛ: [номер и краткое название выбранного угла]\nОБОСНОВАНИЕ: [1-2 предложения, почему этот угол работает для этой аудитории/этапа]\nХУК: [конкретная фраза-зацепка, если она обсуждалась]\n###ANGLE_END###\n\nОтвечай кратко, по делу, на русском.`;
   };
@@ -1507,10 +1631,10 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance }) {
     const lead = reel.lead_magnet_idx != null ? profile.leads?.[reel.lead_magnet_idx] : null;
     const finalScript = reel.selected_script >= 0 ? reel.script_versions?.[reel.selected_script] : "";
     let ctx = "";
-    if (profile.ca) ctx += `=== ЦА ===\n${profile.ca.substring(0, 400)}\n\n`;
-    if (profile.prod) ctx += `=== ПРОДУКТЫ ===\n${profile.prod.substring(0, 400)}\n\n`;
-    if (profile.tov) ctx += `=== TOV ===\n${profile.tov.substring(0, 350)}\n\n`;
-    (profile.materials || []).filter(m => m.use?.script).forEach(m => { ctx += `=== ${m.name.toUpperCase()} ===\n${m.text.substring(0, 300)}\n\n`; });
+    if (profile.ca) ctx += `=== ЦА ===\n${smartTruncate(profile.ca, 2000)}\n\n`;
+    if (profile.prod) ctx += `=== ПРОДУКТЫ ===\n${smartTruncate(profile.prod, 2000)}\n\n`;
+    if (profile.tov) ctx += `=== TOV ===\n${smartTruncate(profile.tov, 1200)}\n\n`;
+    ctx += buildMaterialsCtx(profile.materials, "script");
 
     const ideaSummary = (reel.idea_chat || []).filter(m => m.role !== "note").slice(-3).map(m => `${m.role === "user" ? "Пользователь" : "Идеолог"}: ${m.content}`).join("\n").substring(0, 500);
     const inputBlock = `ВХОДНЫЕ ДАННЫЕ:\nТема из плана: ${reel.topic}\nПлощадка: ${p?.name}\nЭтап Ханта: ${reel.hunt_stage ? `${reel.hunt_stage} — ${HUNT_HINTS[reel.hunt_stage]}` : "не определён"}\n${reel.agreed_angle ? `Согласованный с идеологом угол (ПРИОРИТЕТНЫЙ источник — пиши строго по нему):\n${reel.agreed_angle.raw}\n\nЕсли согласованный угол противоречит теме из плана — следуй согласованному углу, тема из плана нужна только для общего контекста ниши.` : ""}${ideaSummary ? `\n\nФрагменты обсуждения с Идеологом (детали, которых нет в согласованном угле, — используй если уместно):\n${ideaSummary}` : ""}`;
@@ -1690,10 +1814,10 @@ function CopyStep({ reel, profile, onUpdate }) {
 
   const getCtx = () => {
     let ctx = "";
-    if (profile.ca) ctx += `=== ЦА ===\n${profile.ca.substring(0, 400)}\n\n`;
-    if (profile.prod) ctx += `=== ПРОДУКТЫ ===\n${profile.prod.substring(0, 400)}\n\n`;
-    if (profile.tov) ctx += `=== TOV ===\n${profile.tov.substring(0, 300)}\n\n`;
-    (profile.materials || []).filter(m => m.use?.copy).forEach(m => { ctx += `=== ${m.name.toUpperCase()} ===\n${m.text.substring(0, 300)}\n\n`; });
+    if (profile.ca) ctx += `=== ЦА ===\n${smartTruncate(profile.ca, 2000)}\n\n`;
+    if (profile.prod) ctx += `=== ПРОДУКТЫ ===\n${smartTruncate(profile.prod, 2000)}\n\n`;
+    if (profile.tov) ctx += `=== TOV ===\n${smartTruncate(profile.tov, 1200)}\n\n`;
+    ctx += buildMaterialsCtx(profile.materials, "copy");
     const scriptSummary = (reel.script_chat || []).slice(-2).map(m => `${m.role === "user" ? "Пользователь" : "Сценарист"}: ${m.content}`).join("\n").substring(0, 400);
     if (scriptSummary) ctx += `=== ОБСУЖДЕНИЕ ПРИ ПРАВКЕ СЦЕНАРИЯ (детали, которых нет в финальном тексте) ===\n${scriptSummary}\n\n`;
     return ctx;
