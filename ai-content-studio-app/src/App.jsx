@@ -1018,7 +1018,7 @@ function PlanTab({ profile, onUpdateProfile, onWritePost }) {
     const system = buildPlanSystem(typeLabel, fullDoc, platformNames);
     let raw = "";
     try {
-      raw = await callAPI([{ role: "user", content: "Сформируй план на 30 дней." }], system, 8000);
+      raw = await callAPI([{ role: "user", content: "Сформируй план на 30 дней. Ответь только JSON-массивом, без текста и markdown." }], system, 8000);
       if (!raw) throw new Error("Агент вернул пустой ответ. Попробуй ещё раз.");
       const rows = parseJSONArray(raw);
       const nameToKey = Object.fromEntries(Object.entries(PLATFORMS).map(([key, p]) => [p.name, key]));
