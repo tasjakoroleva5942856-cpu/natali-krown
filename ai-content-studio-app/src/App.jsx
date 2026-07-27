@@ -96,6 +96,8 @@ async function callAPI(messages, system, maxTokens = 1000) {
   const headers = { "Content-Type": "application/json", "X-Client-Id": getClientId() };
   const paidToken = localStorage.getItem("acs3-paid-token");
   if (paidToken) headers["Authorization"] = "Bearer " + paidToken;
+  const userKey = localStorage.getItem("acs3-key");
+  if (userKey && userKey.startsWith("sk-ant-")) headers["X-User-Api-Key"] = userKey;
   const r = await fetch("/api/generate", {
     method: "POST",
     headers,
@@ -701,7 +703,7 @@ function ProfilePanel({ profile, apiKey, setApiKey, onSave }) {
         <span style={{ fontSize: 11, fontWeight: 600, color: COLORS.brownS, whiteSpace: "nowrap" }}>🔑 API-ключ</span>
         <input type="password" value={apiKey} onChange={e => saveKey(e.target.value)} placeholder="sk-ant-api03-..." style={{ ...s.field, flex: 1, minWidth: 160 }} />
         <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 20, background: keyOk ? COLORS.greenL : COLORS.cream, color: keyOk ? COLORS.green : COLORS.brownS, border: `1.5px solid ${keyOk ? "#A7D7B8" : COLORS.brd}`, whiteSpace: "nowrap" }}>
-          {apiKey.length === 0 ? "Не введён" : keyOk ? "✓ Сохранён" : "⚠ Формат?"}
+          {apiKey.length === 0 ? "Не введён" : keyOk ? "✓ Свой ключ — генерации не расходуют пробный лимит" : "⚠ Формат?"}
         </span>
         <span style={{ fontSize: 10, color: COLORS.brownS }}>console.anthropic.com → API Keys</span>
       </div>
@@ -1606,7 +1608,13 @@ function IdeaStep({ reel, profile, reels, onUpdate, onAdvance }) {
         {handoffLoading && <div style={{ textAlign: "center", fontSize: 10, color: COLORS.brownS, opacity: .75, fontStyle: "italic", margin: "2px 0" }}>→ Готовим передачу сценаристу…</div>}
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 7 }}>
-        {["Придумай тему с нуля", "Какой угол для ЦА?", "Проверь воронку", "5 тем на месяц"].map(q => (
+        {reel.topic && !(reel.idea_chat || []).length && (
+          <button onClick={() => send(reel.topic)} style={{ background: COLORS.rose, border: `1.5px solid ${COLORS.rose}`, borderRadius: 20, padding: "3px 9px", fontSize: 10, color: "#fff", fontWeight: 600, cursor: "pointer" }}>Работаем над этой темой →</button>
+        )}
+        {[
+          ...(reel.topic ? [] : ["Придумай тему с нуля"]),
+          "Какой угол для ЦА?", "Проверь воронку", "5 тем на месяц",
+        ].map(q => (
           <button key={q} onClick={() => send(q)} style={{ background: COLORS.cream, border: `1.5px solid ${COLORS.brd}`, borderRadius: 20, padding: "3px 9px", fontSize: 10, color: COLORS.brownS, cursor: "pointer" }}>{q}</button>
         ))}
       </div>

@@ -17,7 +17,7 @@ export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
   }
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Client-Id');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Client-Id, X-User-Api-Key');
   res.setHeader('Vary', 'Origin');
 
   if (req.method === 'OPTIONS') return res.status(204).end();
@@ -25,10 +25,19 @@ export default async function handler(req, res) {
 
   const ip = getClientIp(req);
 
+  // Basic per-IP abuse protection applies regardless of who's paying for the
+  // call — it's not a generation-count limit, just a floor against hammering
+  // the server itself.
   const ipOk = await checkRateLimit(`rl:ip:${ip}`, 30, 60);
   if (!ipOk) {
     return res.status(429).json({ error: 'Слишком много запросов. Попробуйте через минуту.' });
   }
+
+  // A user's own Anthropic key is used only for the outbound request below —
+  // never logged or persisted (not even in Redis) — and exempts them from
+  // the studio's trial/daily limits since they're paying Anthropic directly.
+  const userApiKey = req.headers['x-user-api-key'];
+  const hasOwnKey = typeof userApiKey === 'string' && /^sk-ant-[A-Za-z0-9_-]+$/.test(userApiKey);
 
   const authHeader = req.headers['authorization'] || '';
   const paidToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
@@ -64,7 +73,7 @@ export default async function handler(req, res) {
     isPaid = true;
   }
 
-  if (!isPaid) {
+  if (!isPaid && !hasOwnKey) {
     const clientId = req.headers['x-client-id'];
     if (!clientId || typeof clientId !== 'string' || clientId.length < 10 || clientId.length > 100) {
       return res.status(400).json({ error: 'Некорректный запрос' });
@@ -99,7 +108,7 @@ export default async function handler(req, res) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
+        'x-api-key': hasOwnKey ? userApiKey : ANTHROPIC_API_KEY,
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
