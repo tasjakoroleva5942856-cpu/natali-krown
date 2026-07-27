@@ -1606,7 +1606,13 @@ function IdeaStep({ reel, profile, reels, onUpdate, onAdvance }) {
         {handoffLoading && <div style={{ textAlign: "center", fontSize: 10, color: COLORS.brownS, opacity: .75, fontStyle: "italic", margin: "2px 0" }}>→ Готовим передачу сценаристу…</div>}
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 7 }}>
-        {["Придумай тему с нуля", "Какой угол для ЦА?", "Проверь воронку", "5 тем на месяц"].map(q => (
+        {reel.topic && !(reel.idea_chat || []).length && (
+          <button onClick={() => send(reel.topic)} style={{ background: COLORS.rose, border: `1.5px solid ${COLORS.rose}`, borderRadius: 20, padding: "3px 9px", fontSize: 10, color: "#fff", fontWeight: 600, cursor: "pointer" }}>Работаем над этой темой →</button>
+        )}
+        {[
+          ...(reel.topic ? [] : ["Придумай тему с нуля"]),
+          "Какой угол для ЦА?", "Проверь воронку", "5 тем на месяц",
+        ].map(q => (
           <button key={q} onClick={() => send(q)} style={{ background: COLORS.cream, border: `1.5px solid ${COLORS.brd}`, borderRadius: 20, padding: "3px 9px", fontSize: 10, color: COLORS.brownS, cursor: "pointer" }}>{q}</button>
         ))}
       </div>
