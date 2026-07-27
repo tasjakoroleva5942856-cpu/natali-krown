@@ -105,17 +105,45 @@ async function callAPI(messages, system, maxTokens = 1000) {
   if (!r.ok) throw new Error(d.error || "API ошибка");
   return d.text || "";
 }
+// Models sometimes wrap JSON in ```json fences despite being told not to —
+// strip those before any parse attempt rather than letting them break it.
+function stripCodeFence(raw) {
+  return raw.replace(/```json\s*|```/g, "").trim();
+}
 function parseJSON(raw) {
-  try { return JSON.parse(raw); } catch {
-    const m = raw.match(/\{[\s\S]*\}/);
+  const cleaned = stripCodeFence(raw);
+  try { return JSON.parse(cleaned); } catch {
+    const m = cleaned.match(/\{[\s\S]*\}/);
     if (m) return JSON.parse(m[0]);
     throw new Error("Не удалось разобрать ответ");
   }
 }
+// If the response got cut off mid-array (hit the token limit), salvage the
+// complete objects that did make it through instead of losing the whole
+// array over one dangling fragment at the end.
+function recoverTruncatedArray(text) {
+  const start = text.indexOf("[");
+  if (start === -1) return null;
+  const body = text.slice(start + 1);
+  const lastCompleteIdx = body.lastIndexOf("},");
+  const cutoff = lastCompleteIdx !== -1 ? lastCompleteIdx + 1 : body.lastIndexOf("}") + 1;
+  if (cutoff <= 0) return null;
+  try {
+    const v = JSON.parse("[" + body.slice(0, cutoff) + "]");
+    return Array.isArray(v) && v.length ? v : null;
+  } catch {
+    return null;
+  }
+}
 function parseJSONArray(raw) {
-  try { const v = JSON.parse(raw); if (Array.isArray(v)) return v; } catch { /* fall through */ }
-  const m = raw.match(/\[[\s\S]*\]/);
-  if (m) { const v = JSON.parse(m[0]); if (Array.isArray(v)) return v; }
+  const cleaned = stripCodeFence(raw);
+  try { const v = JSON.parse(cleaned); if (Array.isArray(v)) return v; } catch { /* fall through */ }
+  const m = cleaned.match(/\[[\s\S]*\]/);
+  if (m) {
+    try { const v = JSON.parse(m[0]); if (Array.isArray(v)) return v; } catch { /* fall through */ }
+  }
+  const recovered = recoverTruncatedArray(cleaned);
+  if (recovered) return recovered;
   throw new Error("Не удалось разобрать ответ агента");
 }
 // Cuts at the nearest paragraph/sentence break instead of mid-word, so
@@ -936,9 +964,10 @@ ${planDepthRules(typeLabel)}
 - Не повторяй тему дважды за 30 дней.
 - Избегай общих маркетинговых клише ("успех начинается с малого", "здоровье — это важно") — если тема не может быть конкретной из-за нехватки данных, пусть будет просто нейтральной, но не банальной.
 
-ФОРМАТ ОТВЕТА:
-Верни ТОЛЬКО валидный JSON-массив из 30 объектов, без markdown-разметки и пояснений, в точности такой структуры:
-[{"day": 1, "platform": "Telegram", "topic": "...", "stage": 2, "опора": "..."}, {"day": 2, "platform": "...", "topic": "...", "stage": 1, "опора": "..."}, ...]`;
+ФОРМАТ ОТВЕТА — СТРОГО:
+Верни ТОЛЬКО валидный JSON-массив из 30 объектов. Каждый объект — РОВНО эти поля, никаких других, ничего не добавляй сверху (не добавляй segment, angle, cta, hunt_stage, stage_name, format или любые другие поля, даже если они кажутся полезными для этой ниши):
+[{"day": 1, "platform": "Telegram", "topic": "...", "stage": 2, "опора": "..."}, {"day": 2, "platform": "...", "topic": "...", "stage": 1, "опора": "..."}, ...]
+Ответ должен начинаться с символа [ и заканчиваться символом ] — без \`\`\`json, без пояснений до или после массива.`;
 }
 
 function buildRegenItemSystem(typeLabel, fullDoc, platformName, stage, existingTopics) {
@@ -1019,7 +1048,7 @@ function PlanTab({ profile, onUpdateProfile, onWritePost }) {
     const system = buildPlanSystem(typeLabel, fullDoc, platformNames);
     let raw = "";
     try {
-      raw = await callAPI([{ role: "user", content: "Сформируй план на 30 дней. Ответь только JSON-массивом, без текста и markdown." }], system, 8000);
+      raw = await callAPI([{ role: "user", content: "Сформируй план на 30 дней. Ответь только JSON-массивом, без текста и markdown." }], system, 10000);
       if (!raw) throw new Error("Агент вернул пустой ответ. Попробуй ещё раз.");
       const rows = parseJSONArray(raw);
       const nameToKey = Object.fromEntries(Object.entries(PLATFORMS).map(([key, p]) => [p.name, key]));
