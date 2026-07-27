@@ -10,9 +10,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@upstash/redis": "^1.34.0",
+    "mammoth": "^1.12.0",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7",
-    "@upstash/redis": "^1.34.0"
+    "react-dom": "^19.2.7"
   },
   "devDependencies": {
     "@types/react": "^19.2.17",
