@@ -1494,13 +1494,17 @@ function CardModal({ reel, profile, reels, onUpdate, onDelete }) {
 
       {/* STEP TABS */}
       <div style={{ display: "flex", border: `1.5px solid ${COLORS.brd}`, borderRadius: 9, overflow: "hidden", marginBottom: 16 }}>
-        {["1 · Идея", "2 · Сценарий", "3 · Тексты", "4 · Заметки"].map((t, i) => (
+        {["1 · Идея", reel.format === "Карусель" ? "2 · Слайды" : "2 · Сценарий", "3 · Тексты", "4 · Заметки"].map((t, i) => (
           <button key={i} onClick={() => setStep(i)} style={{ flex: 1, padding: "7px 4px", border: "none", borderRight: i < 3 ? `1px solid ${COLORS.brd}` : "none", background: step === i ? COLORS.rose : (i === 1 && reel.script_versions?.length) || (i === 2 && reel.copy && Object.keys(reel.copy).length) ? COLORS.greenL : COLORS.cream, color: step === i ? "#fff" : (i === 1 && reel.script_versions?.length) || (i === 2 && reel.copy && Object.keys(reel.copy).length) ? COLORS.green : COLORS.brownS, fontSize: 10, fontWeight: 700, cursor: "pointer", textAlign: "center" }}>{t}</button>
         ))}
       </div>
 
       {step === 0 && <IdeaStep reel={reel} profile={profile} reels={reels} onUpdate={onUpdate} onAdvance={() => setStep(1)} />}
-      {step === 1 && <ScriptStep reel={reel} profile={profile} onUpdate={onUpdate} onAdvance={() => setStep(2)} />}
+      {step === 1 && (
+        reel.format === "Карусель"
+          ? <CarouselStep reel={reel} profile={profile} onUpdate={onUpdate} onAdvance={() => setStep(2)} />
+          : <ScriptStep reel={reel} profile={profile} onUpdate={onUpdate} onAdvance={() => setStep(2)} />
+      )}
       {step === 2 && <CopyStep reel={reel} profile={profile} onUpdate={onUpdate} />}
       {step === 3 && (
         <NotesStep reel={reel} onUpdate={onUpdate} onDeleteRequest={() => setShowConfirm(true)} />
@@ -1861,6 +1865,192 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance }) {
       ) : (
         <button onClick={requestHooks} disabled={reel.selected_script < 0 || hooksLoading} style={{ ...s.btnRose, width: "100%", opacity: (reel.selected_script >= 0 && !hooksLoading) ? 1 : .4, cursor: (reel.selected_script >= 0 && !hooksLoading) ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
           {hooksLoading ? "Подбираю хуки..." : "Сценарий согласован — показать хуки →"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── CAROUSEL STEP ──
+function CarouselStep({ reel, profile, onUpdate, onAdvance }) {
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [coversLoading, setCoversLoading] = useState(false);
+  const [coversError, setCoversError] = useState("");
+  const [slidesDraft, setSlidesDraft] = useState(reel.script_versions?.[reel.selected_script] || "");
+  const chatRef = useRef(null);
+  const autoGenRef = useRef(false);
+
+  useEffect(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight; }, [reel.script_chat]);
+  useEffect(() => { setSlidesDraft(reel.script_versions?.[reel.selected_script] || ""); }, [reel.selected_script, reel.script_versions]);
+
+  // Авто-генерация сразу после согласования угла с Идеологом — карусели не
+  // нужен доп. вопрос про формат съёмки, поэтому условие проще, чем в ScriptStep.
+  useEffect(() => {
+    if (autoGenRef.current) return;
+    if (reel.agreed_angle && !(reel.script_versions || []).length && reel.topic?.trim()) {
+      autoGenRef.current = true;
+      generateFromIdea();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const buildSystem = () => {
+    const lead = reel.lead_magnet_idx != null ? profile.leads?.[reel.lead_magnet_idx] : null;
+    let ctx = "";
+    if (profile.ca || profile.ca_files?.length) ctx += `=== ЦА ===\n${fieldContext(profile, "ca")}\n\n`;
+    if (profile.prod || profile.prod_files?.length) ctx += `=== ПРОДУКТЫ ===\n${fieldContext(profile, "prod")}\n\n`;
+    if (profile.tov || profile.tov_files?.length) ctx += `=== TOV ===\n${fieldContext(profile, "tov")}\n\n`;
+    ctx += buildMaterialsCtx(profile.materials, "script");
+
+    const ideaSummary = (reel.idea_chat || []).filter(m => m.role !== "note").slice(-3).map(m => `${m.role === "user" ? "Пользователь" : "Идеолог"}: ${m.content}`).join("\n").substring(0, 500);
+    const inputBlock = `ВХОДНЫЕ ДАННЫЕ:\nТема из плана: ${reel.topic}\nПлощадка: Instagram · Карусель\nЭтап Ханта: ${reel.hunt_stage ? `${reel.hunt_stage} — ${HUNT_HINTS[reel.hunt_stage]}` : "не определён"}\n${reel.agreed_angle ? `Согласованный с идеологом угол (ПРИОРИТЕТНЫЙ источник — пиши строго по нему):\n${reel.agreed_angle.raw}\n\nЕсли согласованный угол противоречит теме из плана — следуй согласованному углу, тема из плана нужна только для общего контекста ниши.` : ""}${ideaSummary ? `\n\nФрагменты обсуждения с Идеологом (детали, которых нет в согласованном угле, — используй если уместно):\n${ideaSummary}` : ""}`;
+    const finalSlides = reel.selected_script >= 0 ? reel.script_versions?.[reel.selected_script] : "";
+
+    return `Ты — автор карусели для Instagram. Пишешь текст для слайдов, не сценарий для видео.\n\n${ctx}\n${inputBlock}\n${lead ? `Лид-магнит: ${lead.name} (${lead.link})` : ""}\n${finalSlides ? `Текущая карусель:\n${finalSlides}` : ""}\n\nСтруктура:\n— ОБЛОЖКА (слайд 1): короткий цепляющий заголовок крупным текстом — до 10 слов, останавливает скролл в ленте. Работает как хук: шок-факт/цифра, незаконченная мысль, личное признание, вопрос в боль, спор с распространённым мнением.\n— СЛАЙДЫ КОНТЕНТА: сам реши, сколько нужно — от 5 до 10 слайдов всего считая обложку и CTA, в зависимости от того, сколько реально смысла в теме. Не растягивай простую мысль ради количества и не сжимай сложную в три слайда. Каждый слайд — одна законченная мысль, коротко (на слайд читают за 2-3 секунды, не абзацами).\n— ПОСЛЕДНИЙ СЛАЙД — CTA. Тон зависит от ступени Ханта: 1-2 — мягко (сохранить/поделиться, без продажи), 3 — интерес к методу, 4-5 — прямой оффер с конкретикой.\n\nТон под TOV автора. Без канцеляризмов и штампов. Не больше 1 метафоры на всю карусель — на слайдах нет места на украшательства, только суть.\n\nФормат ответа — каждый раз, когда даёшь готовый текст карусели (новый или отредактированный), выводи целиком после СЛАЙДЫ:, слайды нумеруй так:\nСЛАЙД 1 (обложка): [текст]\nСЛАЙД 2: [текст]\n...\nСЛАЙД N (CTA): [текст]\n\nЕсли пользователь явно попросил варианты обложки — выводи их отдельно после ОБЛОЖКИ:, каждый вариант отдельной строкой, минимум 2 варианта, без повторного СЛАЙДЫ:.\nОтвечай на русском.`;
+  };
+
+  const send = async (msg) => {
+    if (!msg.trim()) return;
+    setInput("");
+    setLoading(true);
+    const system = buildSystem();
+    const newChat = [...(reel.script_chat || []), { role: "user", content: msg }];
+    onUpdate({ script_chat: newChat });
+    try {
+      const messages = newChat.slice(-6).map(m => ({ role: m.role, content: m.content }));
+      const reply = await callAPI(messages, system, 2200);
+      const updatedChat = [...newChat, { role: "assistant", content: reply }];
+      let updates = { script_chat: updatedChat };
+      const sm = reply.match(/СЛАЙДЫ:([\s\S]+?)(?:ОБЛОЖКИ:|$)/);
+      if (sm) {
+        const versions = [...(reel.script_versions || []), sm[1].trim()];
+        updates.script_versions = versions;
+        updates.selected_script = versions.length - 1;
+      }
+      const om = reply.match(/ОБЛОЖКИ:([\s\S]+)/);
+      if (om) {
+        // Strip only actual list markers ("1. "/"2) "/"- "/"• ") — a bare
+        // leading digit is often real hook content ("3 ошибки..."), not a
+        // numbered-list prefix, and must not be eaten.
+        const lines = om[1].split("\n").map(l => l.replace(/^(?:[-•]|\d+[.)])\s*/, "")).filter(l => l.trim().length > 5);
+        if (lines.length >= 2) updates.hooks = lines.slice(0, 3);
+      }
+      onUpdate(updates);
+    } catch (e) {
+      onUpdate({ script_chat: [...newChat, { role: "assistant", content: "Ошибка: " + e.message }] });
+    }
+    setLoading(false);
+  };
+
+  const generateFromIdea = async () => { await send(`Сгенерируй карусель на тему: ${reel.topic}`); };
+
+  const saveSlidesEdit = () => {
+    if (reel.selected_script < 0 || slidesDraft === reel.script_versions?.[reel.selected_script]) return;
+    const versions = [...reel.script_versions];
+    versions[reel.selected_script] = slidesDraft;
+    onUpdate({ script_versions: versions });
+  };
+
+  const requestCovers = async () => {
+    setCoversLoading(true);
+    setCoversError("");
+    const finalSlides = reel.selected_script >= 0 ? reel.script_versions?.[reel.selected_script] : "";
+    const system = `Ты — автор карусели. Дай минимум 2 варианта текста обложки (первый слайд, крупный текст, до 10 слов) к финальной карусели ниже. Ответь СТРОГО в формате: начни с ОБЛОЖКИ:, каждый вариант отдельной строкой, без другого текста до или после.\n\nКарусель:\n${finalSlides}`;
+    try {
+      const reply = await callAPI([{ role: "user", content: "Дай варианты обложки к финальной карусели." }], system, 400);
+      const om = reply.match(/ОБЛОЖКИ:([\s\S]+)/);
+      const lines = om ? om[1].split("\n").map(l => l.replace(/^(?:[-•]|\d+[.)])\s*/, "").trim()).filter(l => l.length > 5) : [];
+      if (lines.length >= 2) {
+        onUpdate({ hooks: lines.slice(0, 3), selected_hook: 0 });
+      } else {
+        setCoversError("Не удалось получить варианты обложки. Можно перейти без них.");
+      }
+    } catch (e) {
+      setCoversError(e.message || "Ошибка запроса");
+    }
+    setCoversLoading(false);
+  };
+
+  const hasCovers = (reel.hooks || []).length > 0;
+
+  return (
+    <div>
+      {!(reel.script_versions || []).length && (
+        <div style={{ marginBottom: 14 }}>
+          {reel.agreed_angle && (
+            <div style={{ background: COLORS.purpleL, border: `1.5px solid #C4B5FD`, borderRadius: 9, padding: "9px 11px", marginBottom: 10, fontSize: 11, color: COLORS.purple, lineHeight: 1.5 }}>
+              <div style={{ fontWeight: 700, marginBottom: 3 }}>✓ Угол согласован с Идеологом</div>
+              {reel.topic && <div><strong>Тема:</strong> {reel.topic}</div>}
+              {reel.agreed_angle.angle && <div><strong>Угол:</strong> {reel.agreed_angle.angle}</div>}
+            </div>
+          )}
+          <span style={s.label}>Идея (согласована на прошлом шаге — можно поправить)</span>
+          <textarea style={{ ...s.field, minHeight: 60 }} rows={3} value={reel.topic || ""} onChange={e => onUpdate({ topic: e.target.value })} placeholder="Тема карусели..." />
+          <button onClick={generateFromIdea} disabled={loading || !reel.topic?.trim()} style={{ ...s.btnRose, width: "100%", marginTop: 8, opacity: (loading || !reel.topic?.trim()) ? .5 : 1 }}>
+            {loading ? "Генерирую..." : "✦ Сгенерировать карусель"}
+          </button>
+        </div>
+      )}
+      {(reel.script_versions || []).length > 0 && (
+        <div style={{ marginBottom: 10 }}>
+          <span style={s.label}>Версии карусели</span>
+          {reel.script_versions.map((v, i) => (
+            <div key={i} onClick={() => onUpdate({ selected_script: i })} style={{ display: "flex", alignItems: "flex-start", gap: 7, background: i === reel.selected_script ? COLORS.roseP : COLORS.cream, border: `1.5px solid ${i === reel.selected_script ? COLORS.rose : COLORS.brd}`, borderRadius: 8, padding: "8px 10px", marginBottom: 4, cursor: "pointer" }}>
+              <div style={{ width: 18, height: 18, borderRadius: "50%", background: i === reel.selected_script ? COLORS.rose : COLORS.brd, color: i === reel.selected_script ? "#fff" : COLORS.brownS, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, flexShrink: 0 }}>{i + 1}</div>
+              <div style={{ fontSize: 11, color: COLORS.brown, lineHeight: 1.4, flex: 1 }}>{v.substring(0, 110)}{v.length > 110 ? "..." : ""}</div>
+              {i === reel.selected_script && <div style={{ fontSize: 10, color: COLORS.green, fontWeight: 600, whiteSpace: "nowrap" }}>✓ Финальная</div>}
+            </div>
+          ))}
+        </div>
+      )}
+      {(reel.script_versions || []).length > 0 && reel.selected_script >= 0 && (
+        <div style={{ marginBottom: 10 }}>
+          <span style={s.label}>Слайды (можно править вручную)</span>
+          <textarea value={slidesDraft} onChange={e => setSlidesDraft(e.target.value)} onBlur={saveSlidesEdit} style={{ ...s.field, minHeight: 180 }} rows={9} />
+          <button onClick={saveSlidesEdit} style={{ ...s.btnOutline, ...s.btnSm, marginTop: 6 }}>Сохранить правки</button>
+        </div>
+      )}
+      <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 8 }}>{(reel.script_versions || []).length ? "Правки и новые версии — прямо в чате. Каждая версия сохраняется." : "Отредактируй идею выше и нажми «Сгенерировать карусель», или сразу опиши, что нужно, в чате."}</div>
+      <div ref={chatRef} style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 220, overflowY: "auto", marginBottom: 8 }}>
+        {(reel.script_chat || []).map((m, i) => <div key={i} style={s.chatMsg(m.role)}><MsgText text={m.content} /></div>)}
+        {loading && <div style={{ ...s.chatMsg("assistant"), opacity: .6, fontStyle: "italic" }}>Думаю...</div>}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 7 }}>
+        {["Напиши с нуля", "Меньше слайдов", "Больше слайдов", "3 варианта обложки", "Усиль обложку", "Живее"].map(q => (
+          <button key={q} onClick={() => send(q)} style={{ background: COLORS.cream, border: `1.5px solid ${COLORS.brd}`, borderRadius: 20, padding: "3px 9px", fontSize: 10, color: COLORS.brownS, cursor: "pointer" }}>{q}</button>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 6, alignItems: "flex-end" }}>
+        <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }} placeholder="Черновик или правки по карусели..." rows={1} style={{ ...s.field, flex: 1, minHeight: 38, maxHeight: 90 }} />
+        <button onClick={() => send(input)} disabled={loading} style={{ ...s.btnRose, width: 36, height: 36, padding: 0, flexShrink: 0, opacity: loading ? .4 : 1 }}>→</button>
+      </div>
+      {hasCovers && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ height: 1, background: COLORS.brd, margin: "12px 0" }} />
+          <span style={s.label}>Варианты обложки (⭐ — финальный)</span>
+          {reel.hooks.map((h, i) => (
+            <div key={i} onClick={() => onUpdate({ selected_hook: i })} style={{ display: "flex", alignItems: "flex-start", gap: 7, background: i === (reel.selected_hook || 0) ? COLORS.roseP : COLORS.cream, border: `1.5px solid ${i === (reel.selected_hook || 0) ? COLORS.rose : COLORS.brd}`, borderRadius: 8, padding: "8px 10px", marginBottom: 5, cursor: "pointer" }}>
+              <span style={{ fontSize: 12, opacity: i === (reel.selected_hook || 0) ? 1 : .35 }}>⭐</span>
+              <span style={{ fontSize: 12, color: COLORS.brown, lineHeight: 1.4, flex: 1 }}>{h}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ height: 1, background: COLORS.brd, margin: "14px 0 10px" }} />
+      {coversError && (
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ fontSize: 11, color: "#DC2626", marginBottom: 6 }}>{coversError}</div>
+          <button onClick={onAdvance} style={{ ...s.btnOutline, ...s.btnSm }}>Перейти без вариантов обложки →</button>
+        </div>
+      )}
+      {hasCovers ? (
+        <button onClick={onAdvance} disabled={reel.selected_script < 0} style={{ ...s.btnRose, width: "100%", opacity: reel.selected_script >= 0 ? 1 : .4, cursor: reel.selected_script >= 0 ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+          Дальше к Копирайтеру →
+        </button>
+      ) : (
+        <button onClick={requestCovers} disabled={reel.selected_script < 0 || coversLoading} style={{ ...s.btnRose, width: "100%", opacity: (reel.selected_script >= 0 && !coversLoading) ? 1 : .4, cursor: (reel.selected_script >= 0 && !coversLoading) ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+          {coversLoading ? "Подбираю варианты..." : "Карусель готова — варианты обложки →"}
         </button>
       )}
     </div>
