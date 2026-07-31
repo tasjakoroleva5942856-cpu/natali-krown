@@ -87,7 +87,7 @@ export default async function handler(req, res) {
     }
   }
 
-  const { system, messages, maxTokens } = req.body || {};
+  const { system, messages, maxTokens, enableWebSearch } = req.body || {};
   if (!Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({ error: 'Некорректный запрос' });
   }
@@ -116,6 +116,9 @@ export default async function handler(req, res) {
         max_tokens: safeMaxTokens,
         ...(safeSystem ? { system: safeSystem } : {}),
         messages: safeMessages,
+        // web_search is a paid tool billed per search call — only attach it
+        // when the frontend explicitly opts in, never by default.
+        ...(enableWebSearch === true ? { tools: [{ type: 'web_search_20250305', name: 'web_search' }] } : {}),
       }),
     });
 
