@@ -693,9 +693,10 @@ function TeamScreen({ setTab }) {
   ];
   return (
     <div style={{ ...s.panel, display: "flex", flexDirection: "column", gap: 20 }}>
-      <AgentThought img="mia" name="Мия" role="маркетолог" desc="Знает вашу аудиторию, продукты и конкурентов. Составляет план на месяц и объясняет, почему выбрала именно эти темы." onClick={() => setTab("plan")} />
-
-      <AgentThought img="lev" name="Лев" role="копирайтер" desc="Берёт тему от Мии и пишет полноценный текст вашим голосом. Ещё не привязан к конкретной площадке — это следующий шаг." soon />
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "16px 24px" }}>
+        <AgentThought img="mia" name="Мия" role="маркетолог" desc="Знает вашу аудиторию, продукты и конкурентов. Составляет план на месяц и объясняет, почему выбрала именно эти темы." bubbleMaxWidth={280} onClick={() => setTab("plan")} />
+        <AgentThought img="lev" name="Лев" role="копирайтер" desc="Берёт тему от Мии и пишет полноценный текст вашим голосом. Ещё не привязан к конкретной площадке — это следующий шаг." bubbleMaxWidth={260} soon />
+      </div>
 
       <div>
         <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 10 }}>Дальше — по площадке</div>
