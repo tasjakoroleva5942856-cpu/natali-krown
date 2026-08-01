@@ -4,13 +4,16 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || '';
 const TRIAL_GENERATION_LIMIT = parseInt(process.env.TRIAL_GENERATION_LIMIT || '10', 10);
 const DAILY_GENERATION_LIMIT = parseInt(process.env.DAILY_GENERATION_LIMIT || '100', 10);
-const MAX_MESSAGE_CHARS = 6000;
-// The system prompt for the 30-day plan generator embeds the full niche
-// document (audience/products/TOV/memory/materials) and can run well past
-// MAX_MESSAGE_CHARS — truncating it there was cutting off the trailing
-// "return ONLY a JSON array" instruction, so the model replied with plain
-// text and the client's JSON parser choked on it.
-const MAX_SYSTEM_CHARS = 24000;
+// This is a SAFETY CEILING against abuse/runaway payloads, not a content
+// budget. Real context budgeting (what to keep, what to trim, what must
+// never be cut) happens client-side in src/ai/contextBuilder.js, which
+// targets a much smaller size than this. If a request still exceeds this
+// ceiling, something upstream is broken — we reject with 413 and tell the
+// caller, instead of silently slicing the request (which used to cut off
+// TOV, memory, and the agent's own instructions with no warning to anyone).
+const MAX_SYSTEM_CHARS = 40000;
+const MAX_MESSAGE_CHARS = 20000;
+const MAX_TOTAL_CHARS = 80000;
 
 export default async function handler(req, res) {
   if (ALLOWED_ORIGIN) {
@@ -87,21 +90,55 @@ export default async function handler(req, res) {
     }
   }
 
-  const { system, messages, maxTokens, enableWebSearch } = req.body || {};
+  const { system, messages, maxTokens, enableWebSearch, agentType } = req.body || {};
   if (!Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({ error: 'Некорректный запрос' });
   }
 
-  const safeMessages = messages
-    .filter((m) => m && typeof m.content === 'string' && (m.role === 'user' || m.role === 'assistant'))
-    .map((m) => ({ role: m.role, content: m.content.slice(0, MAX_MESSAGE_CHARS) }));
-
-  if (safeMessages.length === 0) {
+  const cleanMessages = messages.filter(
+    (m) => m && typeof m.content === 'string' && (m.role === 'user' || m.role === 'assistant')
+  );
+  if (cleanMessages.length === 0) {
     return res.status(400).json({ error: 'Некорректный запрос' });
   }
 
+  const systemStr = typeof system === 'string' ? system : '';
+  const systemLen = systemStr.length;
+  const messagesLen = cleanMessages.reduce((sum, m) => sum + m.content.length, 0);
+  const totalLen = systemLen + messagesLen;
+  const oversizedMessage = cleanMessages.find((m) => m.content.length > MAX_MESSAGE_CHARS);
+
+  // Refuse clearly-oversized requests instead of silently cutting them —
+  // a truncated request can quietly drop the agent's own instructions or
+  // the user's latest edit with no signal to the caller. The client is
+  // expected to have already budgeted content to fit well under these
+  // ceilings (see src/ai/contextBuilder.js); hitting this means that
+  // budgeting failed or was bypassed, and the caller needs to know.
+  if (systemLen > MAX_SYSTEM_CHARS || oversizedMessage || totalLen > MAX_TOTAL_CHARS) {
+    console.error('generate: payload too large', {
+      agentType: typeof agentType === 'string' ? agentType.slice(0, 40) : 'unknown',
+      systemLen,
+      messagesLen,
+      totalLen,
+      messageCount: cleanMessages.length,
+    });
+    return res.status(413).json({
+      error: 'Запрос слишком большой. Сократите материалы или историю переписки и попробуйте снова.',
+      details: { systemLen, messagesLen, totalLen },
+    });
+  }
+
+  const safeMessages = cleanMessages.map((m) => ({ role: m.role, content: m.content }));
   const safeMaxTokens = Math.min(parseInt(maxTokens, 10) || 1000, 12000);
-  const safeSystem = typeof system === 'string' ? system.slice(0, MAX_SYSTEM_CHARS) : undefined;
+  const safeSystem = systemStr || undefined;
+
+  // Size/shape only — never log document text, user drafts, or API keys.
+  console.log('generate: request', {
+    agentType: typeof agentType === 'string' ? agentType.slice(0, 40) : 'unknown',
+    systemLen,
+    messagesLen,
+    messageCount: safeMessages.length,
+  });
 
   try {
     const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
