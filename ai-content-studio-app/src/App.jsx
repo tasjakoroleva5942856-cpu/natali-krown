@@ -440,9 +440,9 @@ export default function App() {
           </div>
         </div>
         <div style={{ display: "flex", gap: 2 }}>
-          {["board", "plan", "profile"].map((t, i) => (
+          {["board", "plan", "team", "profile"].map((t, i) => (
             <button key={t} onClick={() => setTab(t)} style={{ padding: "5px 12px", borderRadius: 7, fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", fontFamily: "inherit", background: tab === t ? COLORS.rose : "none", color: tab === t ? "#fff" : COLORS.brownS }}>
-              {t === "board" ? "◫ Доска" : t === "plan" ? "📅 План" : "⚙ Профиль"}
+              {{ board: "◫ Доска", plan: "📅 План", team: "🤖 Команда", profile: "⚙ Профиль" }[t]}
             </button>
           ))}
         </div>
@@ -572,6 +572,9 @@ export default function App() {
         />
       )}
 
+      {/* TEAM */}
+      {tab === "team" && <TeamScreen setTab={setTab} />}
+
       {/* PROFILE */}
       {tab === "profile" && (
         <ProfilePanel
@@ -635,6 +638,79 @@ export default function App() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── TEAM SCREEN ──
+// Informational showcase only — the agent pipeline (IdeaStep/ScriptStep/
+// CarouselStep/CopyStep) is untouched and unrelated to this screen except
+// for Мия's click-through to the plan tab, which already exists.
+//
+// Each agent is a robot + comic-style "thinking" dots + a speech-bubble —
+// two separate visual elements side by side, deliberately NOT wrapped in a
+// shared card/border (that was the first, rejected version of this screen).
+const TEAM_COLORS = {
+  mia: { size: 90, dotSmall: 8, dotBig: 13, bg: "#FBEAF0", border: "#F4C0D1" },
+  lev: { size: 70, dotSmall: 6, dotBig: 10, bg: "#FAEEDA", border: "#FAC775" },
+  kira: { size: 70, dotSmall: 6, dotBig: 10, bg: "#EEEDFE", border: "#CECBF6" },
+  asya: { size: 70, dotSmall: 6, dotBig: 10, bg: "#E1F5EE", border: "#9FE1CB" },
+  tim: { size: 70, dotSmall: 6, dotBig: 10, bg: "#FAECE7", border: "#F5C4B3" },
+  operator: { size: 56, dotSmall: 5, dotBig: 8, bg: "#F0EEEC", border: "#D6D0CB" },
+  montazher: { size: 56, dotSmall: 5, dotBig: 8, bg: "#F0EEEC", border: "#D6D0CB" },
+};
+
+function AgentThought({ img, name, role, desc, soon, dim, bubbleMaxWidth = 340, onClick }) {
+  const c = TEAM_COLORS[img];
+  const dot = (size, extraStyle) => ({ width: size, height: size, borderRadius: "50%", background: c.bg, border: `1px solid ${c.border}`, ...extraStyle });
+  return (
+    <div onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 6, opacity: dim ? 0.55 : 1, cursor: onClick ? "pointer" : "default" }}>
+      <img src={`/agents/${img}.png`} alt={name} style={{ width: c.size, height: c.size, objectFit: "contain", animation: "bot-bob 2.6s ease-in-out infinite", flexShrink: 0 }} />
+      <div style={{ display: "flex", flexDirection: "column", gap: 4, flexShrink: 0 }}>
+        <div style={dot(c.dotSmall, { marginLeft: 4 })} />
+        <div style={dot(c.dotBig)} />
+      </div>
+      <div style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: 20, padding: "0.85rem 1.1rem", maxWidth: bubbleMaxWidth }}>
+        <div style={{ fontSize: 14, fontWeight: 500 }}>
+          {name}{role ? ` — ${role}` : ""}
+          {soon && <span style={{ fontSize: 9, fontWeight: 700, color: COLORS.brownS, marginLeft: 6 }}>скоро</span>}
+        </div>
+        {desc && <div style={{ fontSize: 12, color: COLORS.brownS, marginTop: 3, lineHeight: 1.5 }}>{desc}</div>}
+      </div>
+    </div>
+  );
+}
+
+function TeamScreen({ setTab }) {
+  const nextStep = [
+    { img: "kira", name: "Кира", role: "сценарист", desc: "Превращает текст Льва в сценарий для видео: хук, план съёмки, о чём говорить." },
+    { img: "asya", name: "Ася", role: "карусели", desc: "Раскладывает текст Льва по слайдам карусели для Instagram." },
+    { img: "tim", name: "Тим", role: "тексты", desc: "Пишет финальный текст под каждую площадку: подпись к видео, пост в Telegram и так далее." },
+  ];
+  const comingSoon = [
+    { img: "operator", name: "Оператор", role: "съёмка" },
+    { img: "montazher", name: "Монтажёр", role: "монтаж" },
+  ];
+  return (
+    <div style={{ ...s.panel, display: "flex", flexDirection: "column", gap: 20 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "16px 24px" }}>
+        <AgentThought img="mia" name="Мия" role="маркетолог" desc="Знает вашу аудиторию, продукты и конкурентов. Составляет план на месяц и объясняет, почему выбрала именно эти темы." bubbleMaxWidth={280} onClick={() => setTab("plan")} />
+        <AgentThought img="lev" name="Лев" role="копирайтер" desc="Берёт тему от Мии и пишет полноценный текст вашим голосом. Ещё не привязан к конкретной площадке — это следующий шаг." bubbleMaxWidth={260} soon />
+      </div>
+
+      <div>
+        <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 10 }}>Дальше — по площадке</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "16px 24px" }}>
+          {nextStep.map(a => <AgentThought key={a.img} {...a} bubbleMaxWidth={220} />)}
+        </div>
+      </div>
+
+      <div>
+        <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 10 }}>Скоро</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "16px 24px" }}>
+          {comingSoon.map(a => <AgentThought key={a.img} {...a} bubbleMaxWidth={200} dim />)}
+        </div>
+      </div>
     </div>
   );
 }
