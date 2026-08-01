@@ -440,9 +440,9 @@ export default function App() {
           </div>
         </div>
         <div style={{ display: "flex", gap: 2 }}>
-          {["board", "plan", "profile"].map((t, i) => (
+          {["board", "plan", "team", "profile"].map((t, i) => (
             <button key={t} onClick={() => setTab(t)} style={{ padding: "5px 12px", borderRadius: 7, fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", fontFamily: "inherit", background: tab === t ? COLORS.rose : "none", color: tab === t ? "#fff" : COLORS.brownS }}>
-              {t === "board" ? "◫ Доска" : t === "plan" ? "📅 План" : "⚙ Профиль"}
+              {{ board: "◫ Доска", plan: "📅 План", team: "🤖 Команда", profile: "⚙ Профиль" }[t]}
             </button>
           ))}
         </div>
@@ -572,6 +572,9 @@ export default function App() {
         />
       )}
 
+      {/* TEAM */}
+      {tab === "team" && <TeamScreen setTab={setTab} />}
+
       {/* PROFILE */}
       {tab === "profile" && (
         <ProfilePanel
@@ -635,6 +638,67 @@ export default function App() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── TEAM SCREEN ──
+// Informational showcase only — the agent pipeline (IdeaStep/ScriptStep/
+// CarouselStep/CopyStep) is untouched and unrelated to this screen except
+// for Мия's click-through to the plan tab, which already exists.
+function TeamScreen({ setTab }) {
+  const nextStep = [
+    { img: "kira", name: "Кира", role: "сценарист", desc: "Превращает текст Льва в сценарий для видео: хук, план съёмки, о чём говорить." },
+    { img: "asya", name: "Ася", role: "карусели", desc: "Раскладывает текст Льва по слайдам карусели для Instagram." },
+    { img: "tim", name: "Тим", role: "тексты", desc: "Пишет финальный текст под каждую площадку: подпись к видео, пост в Telegram и так далее." },
+  ];
+  const comingSoon = [
+    { img: "operator", name: "Оператор", role: "съёмка" },
+    { img: "montazher", name: "Монтажёр", role: "монтаж" },
+  ];
+  return (
+    <div style={s.panel}>
+      <div style={{ ...s.card, display: "flex", alignItems: "center", gap: 14, border: `2px solid ${COLORS.rose}`, cursor: "pointer" }} onClick={() => setTab("plan")}>
+        <img src="/agents/mia.png" alt="Мия" style={{ height: 96, width: "auto", objectFit: "contain", flexShrink: 0 }} />
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 15 }}>Мия — маркетолог</div>
+          <div style={{ fontSize: 12, color: COLORS.brownS, marginTop: 3 }}>Знает вашу аудиторию, продукты и конкурентов. Составляет план на месяц и объясняет, почему выбрала именно эти темы.</div>
+        </div>
+      </div>
+
+      <div style={{ ...s.card, display: "flex", alignItems: "center", gap: 14 }}>
+        <img src="/agents/lev.png" alt="Лев" style={{ height: 72, width: "auto", objectFit: "contain", flexShrink: 0 }} />
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 14 }}>Лев — копирайтер <span style={{ fontSize: 9, fontWeight: 700, color: COLORS.brownS, background: COLORS.cream, borderRadius: 20, padding: "2px 7px", marginLeft: 4 }}>скоро</span></div>
+          <div style={{ fontSize: 12, color: COLORS.brownS, marginTop: 2 }}>Берёт тему от Мии и пишет полноценный текст вашим голосом. Ещё не привязан к конкретной площадке — это следующий шаг.</div>
+        </div>
+      </div>
+
+      <div style={{ fontSize: 11, color: COLORS.brownS, margin: "4px 0 10px" }}>Дальше — по площадке</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 11, marginBottom: 20 }}>
+        {nextStep.map(a => (
+          <div key={a.img} style={{ ...s.card, display: "flex", alignItems: "center", gap: 10, marginBottom: 0 }}>
+            <img src={`/agents/${a.img}.png`} alt={a.name} style={{ height: 68, width: "auto", objectFit: "contain", flexShrink: 0 }} />
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 13 }}>{a.name} — {a.role}</div>
+              <div style={{ fontSize: 11, color: COLORS.brownS, marginTop: 2 }}>{a.desc}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 10 }}>Скоро</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 11, opacity: .55 }}>
+        {comingSoon.map(a => (
+          <div key={a.img} style={{ ...s.card, display: "flex", alignItems: "center", gap: 10, marginBottom: 0 }}>
+            <img src={`/agents/${a.img}.png`} alt={a.name} style={{ height: 68, width: "auto", objectFit: "contain", flexShrink: 0 }} />
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 13 }}>{a.name}</div>
+              <div style={{ fontSize: 11, color: COLORS.brownS, marginTop: 2 }}>{a.role}</div>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
