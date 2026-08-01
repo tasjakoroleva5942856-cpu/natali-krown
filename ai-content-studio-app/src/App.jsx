@@ -92,7 +92,7 @@ function getClientId() {
   }
   return id;
 }
-async function callAPI(messages, system, maxTokens = 1000, enableWebSearch = false) {
+async function callAPI(messages, system, maxTokens = 1000, enableWebSearch = false, agentType = "unknown") {
   const headers = { "Content-Type": "application/json", "X-Client-Id": getClientId() };
   const paidToken = localStorage.getItem("acs3-paid-token");
   if (paidToken) headers["Authorization"] = "Bearer " + paidToken;
@@ -101,7 +101,7 @@ async function callAPI(messages, system, maxTokens = 1000, enableWebSearch = fal
   const r = await fetch("/api/generate", {
     method: "POST",
     headers,
-    body: JSON.stringify({ system, messages, maxTokens, enableWebSearch }),
+    body: JSON.stringify({ system, messages, maxTokens, enableWebSearch, agentType }),
   });
   const d = await r.json();
   if (!r.ok) throw new Error(d.error || "API ошибка");
@@ -293,6 +293,7 @@ function makeReel({ platform, format, hunt = 0, topic = "" }) {
     shoot_format: null, shoot_plan: "",
     copy: {}, notes: "", reactions: "", publish_date: null,
     strategy_card: null,
+    plan_anchor: null, plan_day: null, content_goal: "", fixed_decisions: [],
   };
 }
 
@@ -557,7 +558,7 @@ export default function App() {
           onUpdateProfile={(p) => updateActiveProfile(p)}
           onWritePost={(item) => {
             const p = PLATFORMS[item.platform] || PLATFORMS.ig;
-            const reel = { ...makeReel({ platform: item.platform, format: p.formats[0], hunt: item.stage, topic: item.topic }), profileId: activeProfileId };
+            const reel = { ...makeReel({ platform: item.platform, format: p.formats[0], hunt: item.stage, topic: item.topic }), profileId: activeProfileId, plan_anchor: item.anchor || null, plan_day: item.day ?? null };
             setReels(prev => { const u = [reel, ...prev]; saveReels(u); return u; });
             setCardId(reel.id);
           }}
