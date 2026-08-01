@@ -646,6 +646,41 @@ export default function App() {
 // Informational showcase only — the agent pipeline (IdeaStep/ScriptStep/
 // CarouselStep/CopyStep) is untouched and unrelated to this screen except
 // for Мия's click-through to the plan tab, which already exists.
+//
+// Each agent is a robot + comic-style "thinking" dots + a speech-bubble —
+// two separate visual elements side by side, deliberately NOT wrapped in a
+// shared card/border (that was the first, rejected version of this screen).
+const TEAM_COLORS = {
+  mia: { size: 90, bg: "#FBEAF0", border: "#F4C0D1" },
+  lev: { size: 70, bg: "#FAEEDA", border: "#FAC775" },
+  kira: { size: 70, bg: "#EEEDFE", border: "#CECBF6" },
+  asya: { size: 70, bg: "#E1F5EE", border: "#9FE1CB" },
+  tim: { size: 70, bg: "#FAECE7", border: "#F5C4B3" },
+  operator: { size: 60, bg: "#F0EEEC", border: "#D6D0CB" },
+  montazher: { size: 60, bg: "#F0EEEC", border: "#D6D0CB" },
+};
+
+function AgentThought({ img, name, role, desc, soon, dim, bubbleMaxWidth = 340, onClick }) {
+  const c = TEAM_COLORS[img];
+  const dot = (size, extraStyle) => ({ width: size, height: size, borderRadius: "50%", background: c.bg, border: `1px solid ${c.border}`, ...extraStyle });
+  return (
+    <div onClick={onClick} style={{ display: "flex", alignItems: "flex-end", gap: 6, opacity: dim ? 0.55 : 1, cursor: onClick ? "pointer" : "default" }}>
+      <img src={`/agents/${img}.png`} alt={name} style={{ width: c.size, height: c.size, objectFit: "contain", animation: "bot-bob 2.6s ease-in-out infinite", flexShrink: 0 }} />
+      <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 2, flexShrink: 0 }}>
+        <div style={dot(8, { marginLeft: 4 })} />
+        <div style={dot(13)} />
+      </div>
+      <div style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: 20, padding: "0.85rem 1.1rem", maxWidth: bubbleMaxWidth }}>
+        <div style={{ fontSize: 14, fontWeight: 500 }}>
+          {name}{role ? ` — ${role}` : ""}
+          {soon && <span style={{ fontSize: 9, fontWeight: 700, color: COLORS.brownS, marginLeft: 6 }}>скоро</span>}
+        </div>
+        {desc && <div style={{ fontSize: 12, color: COLORS.brownS, marginTop: 3, lineHeight: 1.5 }}>{desc}</div>}
+      </div>
+    </div>
+  );
+}
+
 function TeamScreen({ setTab }) {
   const nextStep = [
     { img: "kira", name: "Кира", role: "сценарист", desc: "Превращает текст Льва в сценарий для видео: хук, план съёмки, о чём говорить." },
@@ -658,46 +693,22 @@ function TeamScreen({ setTab }) {
   ];
   return (
     <div style={s.panel}>
-      <div style={{ ...s.card, display: "flex", alignItems: "center", gap: 14, border: `2px solid ${COLORS.rose}`, cursor: "pointer" }} onClick={() => setTab("plan")}>
-        <img src="/agents/mia.png" alt="Мия" style={{ height: 96, width: "auto", objectFit: "contain", flexShrink: 0 }} />
-        <div>
-          <div style={{ fontWeight: 700, fontSize: 15 }}>Мия — маркетолог</div>
-          <div style={{ fontSize: 12, color: COLORS.brownS, marginTop: 3 }}>Знает вашу аудиторию, продукты и конкурентов. Составляет план на месяц и объясняет, почему выбрала именно эти темы.</div>
-        </div>
+      <div style={{ marginBottom: 24 }}>
+        <AgentThought img="mia" name="Мия" role="маркетолог" desc="Знает вашу аудиторию, продукты и конкурентов. Составляет план на месяц и объясняет, почему выбрала именно эти темы." onClick={() => setTab("plan")} />
       </div>
 
-      <div style={{ ...s.card, display: "flex", alignItems: "center", gap: 14 }}>
-        <img src="/agents/lev.png" alt="Лев" style={{ height: 72, width: "auto", objectFit: "contain", flexShrink: 0 }} />
-        <div>
-          <div style={{ fontWeight: 700, fontSize: 14 }}>Лев — копирайтер <span style={{ fontSize: 9, fontWeight: 700, color: COLORS.brownS, background: COLORS.cream, borderRadius: 20, padding: "2px 7px", marginLeft: 4 }}>скоро</span></div>
-          <div style={{ fontSize: 12, color: COLORS.brownS, marginTop: 2 }}>Берёт тему от Мии и пишет полноценный текст вашим голосом. Ещё не привязан к конкретной площадке — это следующий шаг.</div>
-        </div>
+      <div style={{ marginBottom: 28 }}>
+        <AgentThought img="lev" name="Лев" role="копирайтер" desc="Берёт тему от Мии и пишет полноценный текст вашим голосом. Ещё не привязан к конкретной площадке — это следующий шаг." soon />
       </div>
 
-      <div style={{ fontSize: 11, color: COLORS.brownS, margin: "4px 0 10px" }}>Дальше — по площадке</div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 11, marginBottom: 20 }}>
-        {nextStep.map(a => (
-          <div key={a.img} style={{ ...s.card, display: "flex", alignItems: "center", gap: 10, marginBottom: 0 }}>
-            <img src={`/agents/${a.img}.png`} alt={a.name} style={{ height: 68, width: "auto", objectFit: "contain", flexShrink: 0 }} />
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 13 }}>{a.name} — {a.role}</div>
-              <div style={{ fontSize: 11, color: COLORS.brownS, marginTop: 2 }}>{a.desc}</div>
-            </div>
-          </div>
-        ))}
+      <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 14 }}>Дальше — по площадке</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 20, marginBottom: 28 }}>
+        {nextStep.map(a => <AgentThought key={a.img} {...a} bubbleMaxWidth={240} />)}
       </div>
 
-      <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 10 }}>Скоро</div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 11, opacity: .55 }}>
-        {comingSoon.map(a => (
-          <div key={a.img} style={{ ...s.card, display: "flex", alignItems: "center", gap: 10, marginBottom: 0 }}>
-            <img src={`/agents/${a.img}.png`} alt={a.name} style={{ height: 68, width: "auto", objectFit: "contain", flexShrink: 0 }} />
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 13 }}>{a.name}</div>
-              <div style={{ fontSize: 11, color: COLORS.brownS, marginTop: 2 }}>{a.role}</div>
-            </div>
-          </div>
-        ))}
+      <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 14 }}>Скоро</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 20 }}>
+        {comingSoon.map(a => <AgentThought key={a.img} {...a} bubbleMaxWidth={200} dim />)}
       </div>
     </div>
   );
