@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import mammoth from "mammoth";
+import { createContextPacket, renderContextPacket } from "./ai/contextBuilder.js";
+import { buildCoreInstructions as ideologistCore } from "./ai/prompts/ideologist.js";
+import { buildCoreInstructions as trendResearcherCore } from "./ai/prompts/trendResearcher.js";
 
 // ── window.storage shim (Claude.ai artifact API) — falls back to localStorage outside the sandbox ──
 if (typeof window !== "undefined" && !window.storage) {
@@ -150,12 +153,12 @@ function parseJSONArray(raw) {
 }
 // The Идеолог→Сценарист handoff block is small enough that models
 // occasionally "helpfully" reformat it — markdown bold, bullet dashes,
-// sentence-case labels, or drop the ###ANGLE_START###/END### markers
+// sentence-case labels, or drop the ###КАРТОЧКА_START###/END### markers
 // entirely while still writing recognizable УГОЛ/ОБОСНОВАНИЕ/ХУК lines.
 // Strip the common drift before giving up on it.
 function extractAngleBlock(reply) {
   const stripped = reply.replace(/\*\*/g, "").replace(/^[-•]\s*/gm, "");
-  const m = stripped.match(/###ANGLE_START###([\s\S]+?)###ANGLE_END###/i);
+  const m = stripped.match(/###КАРТОЧКА_START###([\s\S]+?)###КАРТОЧКА_END###/i);
   if (m) return m[1].trim();
   if (/угол\s*:/i.test(stripped) && /хук\s*:/i.test(stripped)) return stripped.trim();
   return null;
@@ -293,6 +296,7 @@ function makeReel({ platform, format, hunt = 0, topic = "" }) {
     shoot_format: null, shoot_plan: "",
     copy: {}, notes: "", reactions: "", publish_date: null,
     strategy_card: null,
+    script_strategy_card: null,
     plan_anchor: null, plan_day: null, content_goal: "", fixed_decisions: [],
   };
 }
@@ -1538,45 +1542,56 @@ function IdeaStep({ reel, profile, reels, onUpdate, onAdvance }) {
 
   useEffect(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight; }, [reel.idea_chat]);
 
-  const buildSystem = () => {
+  // useSearch picks which agent answers this turn: the normal Идеолог, or
+  // the separate trend-researcher (button-triggered only, see the
+  // "🌍 Что происходит в нише сейчас" quick-reply below) — two distinct
+  // core-instruction files so the "short topic list, no market report"
+  // constraint never leaks into normal ideation and vice versa.
+  const buildPacket = (useSearch) => {
     const existingTopics = reels.filter(x => x.id !== reel.id && x.topic).map(x => x.topic).join(", ");
     const lead = reel.lead_magnet_idx != null ? profile.leads?.[reel.lead_magnet_idx] : null;
     const p = PLATFORMS[reel.platform];
-    let ctx = "";
-    if (profile.ca || profile.ca_files?.length) ctx += `=== ЦА ===\n${fieldContext(profile, "ca")}\n\n`;
-    if (profile.prod || profile.prod_files?.length) ctx += `=== ПРОДУКТЫ И ВОРОНКА ===\n${fieldContext(profile, "prod")}\n\n`;
-    if (profile.tov || profile.tov_files?.length) ctx += `=== TOV ===\n${fieldContext(profile, "tov")}\n\n`;
-    if (profile.memory || profile.memory_files?.length) ctx += `=== ПАТТЕРНЫ ===\n${fieldContext(profile, "memory")}\n\n`;
-    ctx += buildMaterialsCtx(profile.materials, "idea");
-
-    return `Ты — Идеолог, стратег по вирусному контенту. Тон — честный и по делу: не хвалишь идею ради вежливости, а сразу называешь сильные и слабые стороны.\n\n${ctx}\nПлощадка: ${p?.name} · ${reel.format}\n${reel.hunt_stage ? `Ступень Ханта: ${reel.hunt_stage} (${HUNT_HINTS[reel.hunt_stage]})` : "Ступень: определи сам, исходя из площадки"}\n${existingTopics ? `Уже снятые темы (не повторяться): ${existingTopics}` : ""}\n${lead ? `Лид-магнит: ${lead.name} (${lead.link})` : ""}\n\nЕсли темы нет — задай МАКСИМУМ 1 вопрос за раз (не больше 2 за сессию): что происходит в жизни/бизнесе сейчас / какой вопрос чаще всего задают клиенты / что раздражает в нише.\n\nЕсли тема есть:\n— Предложи 2-3 угла подачи (формулы: факт+эмоция, статистика+последствие, разрушение мифа/контраст "думают VS на самом деле"). По каждому углу — одна короткая фраза, что в нём цепляет (контроверсивность/любопытство/painful/общий враг), без построчного разбора всей формулы виральности. Если угол слабый — сразу скажи, что усилить, не спрашивай "что делать"\n— Если боль в теме абстрактная — сам предложи конкретную бытовую деталь и переверни её в хук (боль → хук), не дожидаясь примера от пользователя\n— Учти тон площадки: Threads — самая резкая провокация; Instagram/TikTok — мягче, через наблюдение; Telegram — экспертно, без провокации ради провокации\n— Обоснуй, зачем снимать для воронки\n— Вопросы — по минимуму: максимум ОДИН вопрос за весь ответ, и только если без ответа реально нельзя предложить конкретный угол. Если можешь сам додумать деталь или пример — предлагай её сам вместо вопроса, не спрашивай "на всякий случай"\n\nНе выдумывай факты. Контроверсия — про мнение, не про ложь. "Общий враг" — система/привычка/миф, не человек.\n\nЕсли тебе доступен инструмент веб-поиска и пользователь просит посмотреть, что происходит в нише сейчас — найди актуальные новости, обсуждения, события за последние 1-2 недели, которые касаются этой ниши (ориентируйся на ЦА и продукты из контекста выше). Если за этот период ничего явного не нашлось — расширь поиск до месяца, прежде чем признать, что инфоповодов нет.
-
-ФОРМАТ ОТВЕТА — СТРОГО КОРОТКИЙ, НИКАКОГО АНАЛИТИЧЕСКОГО ОТЧЁТА:
-Пользователю не нужен обзор рынка. Не пиши разделы с заголовками, не приводи проценты роста, объёмы рынка в деньгах, статистику, ссылки на источники, общие рассуждения "что это значит для индустрии". Ответ — только 3-5 актуальных тем и больше ничего.
-
-Оформляй темы как обычные варианты — заголовками "Вариант 1: ...", без строки "ТЕМА:", пока пользователь явно не выбрал одну (см. правило выше). Каждый вариант — 1-2 строки: какой инфоповод и в чём конкретно зацепка для этой ЦА (без общих фраз вроде "рынок растёт" — сразу суть под эту нишу). Не пересказывай источник дословно и не цитируй — только своими словами.
-
-В конце — одна короткая фраза-предложение выбрать тему и перейти дальше, например: "Какую берём — накидаю сценарий?"
-
-Не строй тему на трагедиях, катастрофах, чужом горе, острых политических скандалах — даже если это самый обсуждаемый инфоповод недели. Это выглядит как эксплуатация чужой беды ради охвата и вредит репутации автора.
-
-Если ниша касается здоровья, финансов или права — при выборе, на какую новость опираться, предпочитай официальные/первичные данные, а не первую попавшуюся статью-агрегатор с непроверенными советами.
-
-Если ничего по-настоящему релевантного и уместного в нише не нашлось — прямо скажи это коротко и предложи темы без привязки к новостям, не выдумывай несуществующий инфоповод.
-
-Если предлагаешь НЕСКОЛЬКО вариантов темы — оформляй их не строкой "ТЕМА:", а просто заголовками (например "Вариант 1: ..."), чтобы не путать с финальным выбором.\nСтрокой "ТЕМА: ..." начинай только когда пользователь явно выбрал или согласовал ОДНУ конкретную тему — в этой строке должна быть именно она, без номера.\n\nЕсли пользователь готов перейти к сценаристу (получено служебное сообщение о переходе) — это ЕДИНСТВЕННЫЙ случай, когда нужен другой формат ответа. Ответь СТРОГО и ТОЛЬКО этими 5 строками, без вступления, без markdown (никакого **жирного**, никаких дефисов-буллетов), без дополнительных полей вроде "Этап Ханта" или "Тон CTA" — вся эта информация уже есть в самих полях ниже:\n###ANGLE_START###\nУГОЛ: [номер и краткое название выбранного угла]\nОБОСНОВАНИЕ: [1-2 предложения, почему этот угол работает для этой аудитории/этапа]\nХУК: [конкретная фраза-зацепка, если она обсуждалась]\n###ANGLE_END###\nМетки УГОЛ/ОБОСНОВАНИЕ/ХУК — заглавными буквами, ровно как показано, никак иначе.\n\nОтвечай кратко, по делу, на русском.`;
+    const packet = createContextPacket({
+      agent: useSearch ? "trend_researcher" : "ideologist",
+      profile: {
+        name: profile.name,
+        audience: fieldContext(profile, "ca"),
+        products: fieldContext(profile, "prod"),
+        toneOfVoice: fieldContext(profile, "tov"),
+        manualMemory: fieldContext(profile, "memory"),
+        learnedMemory: profile.learnedMemory || [],
+      },
+      content: {
+        topic: reel.topic,
+        planAnchor: reel.plan_anchor || "",
+        platform: p?.name,
+        format: reel.format,
+        huntStage: reel.hunt_stage,
+        huntStageHint: reel.hunt_stage ? HUNT_HINTS[reel.hunt_stage] : "",
+        selectedLead: lead ? `${lead.name} (${lead.link})` : "",
+      },
+      materials: profile.materials,
+      // The live back-and-forth already goes through the Anthropic
+      // `messages` array below — embedding it again here would just
+      // duplicate it inside `system`.
+      conversation: {},
+    });
+    const coreInstructions = useSearch
+      ? trendResearcherCore({ platform: p?.name, format: reel.format })
+      : ideologistCore({ platform: p?.name, format: reel.format, existingTopics });
+    return renderContextPacket(packet, { coreInstructions, stage: "idea", requiresMemory: !useSearch });
   };
 
   const send = async (msg, useSearch = false) => {
     if (!msg.trim()) return;
     setInput("");
     setLoading(true);
-    const system = buildSystem();
+    const { system } = buildPacket(useSearch);
     const newChat = [...(reel.idea_chat || []), { role: "user", content: msg }];
     onUpdate({ idea_chat: newChat });
     try {
       const messages = newChat.filter(m => m.role !== "note").slice(-6).map(m => ({ role: m.role, content: m.content }));
-      const reply = await callAPI(messages, system, 1600, useSearch);
+      const reply = await callAPI(messages, system, 1600, useSearch, useSearch ? "trend_researcher" : "ideologist");
       const updatedChat = [...newChat, { role: "assistant", content: reply }];
       let updates = { idea_chat: updatedChat };
       // Match only an unambiguous single "ТЕМА:" line — not "ТЕМА 1:",
@@ -1596,11 +1611,11 @@ function IdeaStep({ reel, profile, reels, onUpdate, onAdvance }) {
   const handoffToScript = async () => {
     setHandoffLoading(true);
     setHandoffError("");
-    const system = buildSystem();
+    const { system } = buildPacket(false);
     const baseChat = (reel.idea_chat || []).filter(m => m.role !== "note");
     try {
-      const messages = [...baseChat.slice(-6).map(m => ({ role: m.role, content: m.content })), { role: "user", content: "Пользователь готов перейти к сценаристу. Ответь только блоком ###ANGLE_START### / УГОЛ / ОБОСНОВАНИЕ / ХУК / ###ANGLE_END### — без markdown, без вступления, без других полей." }];
-      const reply = await callAPI(messages, system, 500);
+      const messages = [...baseChat.slice(-6).map(m => ({ role: m.role, content: m.content })), { role: "user", content: "Пользователь готов перейти к сценаристу. Ответь только карточкой ###КАРТОЧКА_START### / ... / ###КАРТОЧКА_END### — без markdown, без вступления, без другого текста." }];
+      const reply = await callAPI(messages, system, 700, false, "ideologist");
       const block = extractAngleBlock(reply);
       if (!block) {
         setHandoffError("Не удалось получить итог от Идеолога. Можно попробовать снова или перейти без согласованного угла.");
@@ -1608,8 +1623,27 @@ function IdeaStep({ reel, profile, reels, onUpdate, onAdvance }) {
         return;
       }
       const get = (label) => { const mm = block.match(new RegExp(label + "\\s*:\\s*(.+)", "i")); return mm ? mm[1].trim() : ""; };
-      const angle = { raw: block, angle: get("УГОЛ"), rationale: get("ОБОСНОВАНИЕ"), hook: get("ХУК") };
-      onUpdate({ idea_chat: [...(reel.idea_chat || []), { role: "note", content: "✓ Угол согласован, передаю сценаристу" }], agreed_angle: angle });
+      const lead = reel.lead_magnet_idx != null ? profile.leads?.[reel.lead_magnet_idx] : null;
+      const strategyCard = {
+        topic: reel.topic || "",
+        planAnchor: reel.plan_anchor || "",
+        audienceSegment: get("СЕГМЕНТ"),
+        huntStage: reel.hunt_stage,
+        contentGoal: get("ЦЕЛЬ"),
+        angle: get("УГОЛ"),
+        rationale: get("ОБОСНОВАНИЕ"),
+        hook: get("ХУК"),
+        funnelRole: get("РОЛЬ В ВОРОНКЕ"),
+        allowedFacts: get("РАЗРЕШЁННЫЕ ФАКТЫ"),
+        selectedLead: lead ? `${lead.name} (${lead.link})` : "",
+        userConstraints: get("ОГРАНИЧЕНИЯ"),
+        raw: block,
+      };
+      // agreed_angle keeps the old shape ScriptStep/CarouselStep/CopyStep
+      // still read directly — they switch to content.strategyCard via
+      // contextPacket in a follow-up PR, alongside their own prompt fixes.
+      const angle = { raw: block, angle: strategyCard.angle, rationale: strategyCard.rationale, hook: strategyCard.hook };
+      onUpdate({ idea_chat: [...(reel.idea_chat || []), { role: "note", content: "✓ Угол согласован, передаю сценаристу" }], agreed_angle: angle, strategy_card: strategyCard });
       onAdvance();
     } catch (e) {
       setHandoffError(e.message || "Ошибка запроса");
@@ -1867,7 +1901,7 @@ CTA: [что человек должен сделать]
       const updatedChat = [...newChat, { role: "assistant", content: displayReply }];
       let updates = { script_chat: updatedChat };
       const cm = reply.match(/###КАРТОЧКА_START###([\s\S]+?)###КАРТОЧКА_END###/);
-      if (cm) updates.strategy_card = cm[1].trim();
+      if (cm) updates.script_strategy_card = cm[1].trim();
       const sm = reply.match(/СЦЕНАРИЙ:([\s\S]+?)(?:ХУКИ:|ПЛАН СЪЁМКИ:|$)/);
       if (sm) {
         const versions = [...(reel.script_versions || []), sm[1].trim()];
@@ -1922,8 +1956,8 @@ CTA: [что человек должен сделать]
   const hasHooks = (reel.hooks || []).length > 0;
 
   const cardField = (label) => {
-    if (!reel.strategy_card) return "";
-    const mm = reel.strategy_card.match(new RegExp(label + "\\s*:\\s*(.+)", "i"));
+    if (!reel.script_strategy_card) return "";
+    const mm = reel.script_strategy_card.match(new RegExp(label + "\\s*:\\s*(.+)", "i"));
     return mm ? mm[1].trim() : "";
   };
 
@@ -1970,7 +2004,7 @@ CTA: [что человек должен сделать]
           ))}
         </div>
       )}
-      {reel.strategy_card && (reel.script_versions || []).length > 0 && (
+      {reel.script_strategy_card && (reel.script_versions || []).length > 0 && (
         <div style={{ background: COLORS.purpleL, border: `1.5px solid #C4B5FD`, borderRadius: 9, padding: "9px 11px", marginBottom: 10, fontSize: 11, color: COLORS.purple, lineHeight: 1.5 }}>
           <div style={{ fontWeight: 700, marginBottom: 3 }}>📋 Карточка стратегии</div>
           {cardField("Ступень") && <div><strong>Ступень Ханта:</strong> {cardField("Ступень")}</div>}
