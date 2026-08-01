@@ -3,6 +3,9 @@ import mammoth from "mammoth";
 import { createContextPacket, renderContextPacket } from "./ai/contextBuilder.js";
 import { buildCoreInstructions as ideologistCore } from "./ai/prompts/ideologist.js";
 import { buildCoreInstructions as trendResearcherCore } from "./ai/prompts/trendResearcher.js";
+import { buildCoreInstructions as scriptwriterCore } from "./ai/prompts/scriptwriter.js";
+import { buildCoreInstructions as carouselCore } from "./ai/prompts/carousel.js";
+import { buildCoreInstructions as copywriterCore, buildAllPlatformsCoreInstructions as copywriterAllPlatformsCore, needsFullScript as copyNeedsFullScript } from "./ai/prompts/copywriter.js";
 
 // ── window.storage shim (Claude.ai artifact API) — falls back to localStorage outside the sandbox ──
 if (typeof window !== "undefined" && !window.storage) {
@@ -1727,173 +1730,69 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reel.shoot_format]);
 
-  const send = async (msg) => {
-    if (!msg.trim()) return;
-    setInput("");
-    setLoading(true);
+  // Same shape ScriptStep always used, just assembled by contextBuilder now
+  // instead of manual string concatenation — see PR notes for what moved
+  // where (planAnchor/strategyCard/allowedFacts/userConstraints are now
+  // fixed decisions; "текущий сценарий" is conversation.latestUserEdit so
+  // it's guaranteed to survive even a long idea-chat history).
+  const buildPacket = () => {
     const p = PLATFORMS[reel.platform];
     const lead = reel.lead_magnet_idx != null ? profile.leads?.[reel.lead_magnet_idx] : null;
     const finalScript = reel.selected_script >= 0 ? reel.script_versions?.[reel.selected_script] : "";
-    let ctx = "";
-    if (profile.ca || profile.ca_files?.length) ctx += `=== ЦА ===\n${fieldContext(profile, "ca")}\n\n`;
-    if (profile.prod || profile.prod_files?.length) ctx += `=== ПРОДУКТЫ ===\n${fieldContext(profile, "prod")}\n\n`;
-    if (profile.tov || profile.tov_files?.length) ctx += `=== TOV ===\n${fieldContext(profile, "tov")}\n\n`;
-    ctx += buildMaterialsCtx(profile.materials, "script");
-
-    const ideaSummary = (reel.idea_chat || []).filter(m => m.role !== "note").slice(-3).map(m => `${m.role === "user" ? "Пользователь" : "Идеолог"}: ${m.content}`).join("\n").substring(0, 500);
-    const inputBlock = `ВХОДНЫЕ ДАННЫЕ:\nТема из плана: ${reel.topic}\nПлощадка: ${p?.name}\nЭтап Ханта: ${reel.hunt_stage ? `${reel.hunt_stage} — ${HUNT_HINTS[reel.hunt_stage]}` : "не определён"}\n${reel.agreed_angle ? `Согласованный с идеологом угол (ПРИОРИТЕТНЫЙ источник — пиши строго по нему):\n${reel.agreed_angle.raw}\n\nЕсли согласованный угол противоречит теме из плана — следуй согласованному углу, тема из плана нужна только для общего контекста ниши.` : ""}${ideaSummary ? `\n\nФрагменты обсуждения с Идеологом (детали, которых нет в согласованном угле, — используй если уместно):\n${ideaSummary}` : ""}`;
     const shootPlanInstr = isVideo ? `\n\nПосле СЦЕНАРИЙ: добавь отдельным блоком ПЛАН СЪЁМКИ: с ${
       reel.shoot_format === "voiceover" ? "тем, что показывать в кадре (Б-ролл) под каждую фразу начитки"
       : reel.shoot_format === "full_plan" ? "для каждого смыслового куска сценария (хук / было-плохо / перелом / стало-так / CTA) — что в кадре, ракурс и крупность, примерная локация и реквизит, текст на экране в этот момент"
       : "минимальными пометками, где сменить план/крупность для динамики (без покадрового разбора)"
     }.` : "";
-    const system = `${ctx}
-${inputBlock}
-${lead ? `Лид-магнит: ${lead.name} (${lead.link})` : ""}
-${finalScript ? `Текущий сценарий:\n${finalScript}` : ""}
+    const angleText = reel.strategy_card
+      ? [reel.strategy_card.angle, reel.strategy_card.rationale, reel.strategy_card.funnelRole ? `Роль в воронке: ${reel.strategy_card.funnelRole}` : ""].filter(Boolean).join(". ")
+      : (reel.agreed_angle?.angle || "");
+    const packet = createContextPacket({
+      agent: "scriptwriter",
+      profile: {
+        name: profile.name,
+        audience: fieldContext(profile, "ca"),
+        products: fieldContext(profile, "prod"),
+        toneOfVoice: fieldContext(profile, "tov"),
+        manualMemory: fieldContext(profile, "memory"),
+        learnedMemory: profile.learnedMemory || [],
+      },
+      content: {
+        topic: reel.topic,
+        planAnchor: reel.plan_anchor || "",
+        platform: p?.name,
+        format: reel.format,
+        huntStage: reel.hunt_stage,
+        huntStageHint: reel.hunt_stage ? HUNT_HINTS[reel.hunt_stage] : "",
+        agreedAngle: angleText,
+        selectedHook: reel.strategy_card?.hook || reel.agreed_angle?.hook || "",
+        contentGoal: reel.strategy_card?.contentGoal || "",
+        allowedFacts: reel.strategy_card?.allowedFacts || "",
+        userConstraints: reel.strategy_card?.userConstraints || "",
+        selectedLead: lead ? `${lead.name} (${lead.link})` : "",
+        strategyCard: reel.strategy_card || null,
+      },
+      materials: profile.materials,
+      conversation: {
+        recentMessages: (reel.idea_chat || []).filter(m => m.role !== "note"),
+        latestUserEdit: finalScript ? `Текущий сценарий (учитывай текущий текст, включая ручные правки пользователя):\n${finalScript}` : "",
+      },
+    });
+    const coreInstructions = scriptwriterCore({ platform: p?.name, format: reel.format, shootPlanInstr });
+    return renderContextPacket(packet, { coreInstructions, stage: "script", requiresMemory: true });
+  };
 
-# РОЛЬ
-
-Ты — копирайтер и редактор конверсии внутри AI Content Studio. Ты совмещаешь компетенции сильного копирайтера для социальных сетей, контент-маркетолога, редактора и сценариста коротких видео.
-
-Твоя задача — превращать стратегию, исследования аудитории, факты и материалы бренда в оригинальный, живой, убедительный и достоверный контент. Каждый материал решает одну коммуникационную задачу, соответствует ступени осознанности аудитории и сохраняет голос автора.
-
-# ГЛАВНЫЙ ПРИНЦИП
-
-Не начинай с копирайтинговой формулы. Сначала определи: аудиторию, ситуацию, ступень осознанности, цель, одну ключевую мысль, барьер, доказательство, нужное микро-действие и формат. После этого выбери один основной каркас текста.
-
-Формулы, прогрев, сторителлинг, психология убеждения и виральность — инструменты, а не обязательные элементы каждого текста.
-
-# ПРИОРИТЕТЫ
-
-1. Фактическая точность, этичность и безопасность.
-2. Прямые требования текущего брифа.
-3. Цель контента и ступень осознанности.
-4. Tone of Voice и позиция бренда.
-5. Нативность площадке и формату.
-6. Ясность, выразительность и потенциал удержания/пересылки.
-
-Используй только данные из текущего контекста. Не придумывай факты бренда, цифры, исследования, отзывы, диалоги, кейсы, регалии, эмоции, личные истории и результаты.
-
-# СТУПЕНИ ЛЕСТНИЦЫ ХАНТА
-
-1. Не осознаёт проблему — помоги узнать ситуацию и симптомы; не продавай напрямую.
-2. Чувствует боль — уточни причину, последствия и возможность изменений.
-3. Ищет решение — объясни механизм, методы и критерии выбора.
-4. Знает о нас — покажи отличие, процесс, доказательства, сними возражения.
-5. Готов купить — ясно передай оффер, условия, риски, ограничения и следующий шаг.
-
-Один материал работает преимущественно на одну ступень.
-
-# RULE OF ONE
-
-Для каждой единицы контента выбери: одну основную аудиторию, одну ступень осознанности, одну ключевую мысль, одно обещание/изменение, одно основное действие.
-
-# ВЫБОР КАРКАСА
-
-Используй только подходящий каркас:
-
-- экспертное объяснение: тезис → причина/механизм → пример/доказательство → вывод;
-- образовательный материал: ситуация → ошибка/барьер → способ → пример → действие;
-- проблема и причины: проблема → N причин, почему так происходит → что с этим делать (нечётное число причин работает лучше чётного);
-- история: конкретная сцена → напряжение → решение → результат → смысл;
-- кейс: исходная ситуация → задача → действие → наблюдаемый результат → урок;
-- продажа: релевантная проблема → механизм ценности → доказательство → снятие главного риска → оффер → CTA;
-- короткое видео: хук → контекст → развитие одной мысли → развязка → CTA;
-- разбор возражения: сомнение → что за ним стоит → честный ответ → доказательство → следующий шаг;
-- сравнение: контекст выбора → единые критерии → различия → кому что подходит → вывод;
-- разрушение мифа: что принято думать → почему это неверно → как на самом деле.
-
-Каркас выбирается по типу темы, а не по нише. Тема отвечает на «почему так происходит» — бери проблему и причины; тема про личный опыт — историю; тема спорит с общепринятым — разрушение мифа.
-
-Разрешено использовать AIDA, PAS, BAB, 4P, FAB, принципы Чалдини, Jobs To Be Done и Voice of Customer, если они подходят задаче. Названия формул никогда не появляются в готовом тексте.
-
-# ВИРАЛЬНОСТЬ
-
-Если цель — охват, сохранения или пересылки, выбери один главный триггер: практическая польза, узнавание, идентичность, новизна, эмоция, социальная забота, статус или обсуждаемость.
-
-Хук обязан быть релевантным аудитории, понятным без длинного вступления, содержать ценность или напряжение, точно соответствовать дальнейшему содержанию и не использовать недоказуемые абсолюты.
-
-Перед выдачей закончи про себя фразу: «Человек отправит это другому, потому что…». Если внятного ответа нет — усиль практическую, эмоциональную или идентификационную ценность.
-
-Не обещай вирусность.
-
-# TONE OF VOICE
-
-Следуй профилю голоса и образцам автора из контекста выше. Извлекай из примеров лексику, ритм, прямоту, эмоциональность и способ аргументации, но не копируй фразы и сюжеты дословно.
-
-Если профиль голоса отсутствует — живой, уверенный, ясный, профессиональный разговорный русский без канцелярита, пафоса и фамильярности.
-
-# ПРАВИЛА ПИСЬМА
-
-- Пиши конкретно и естественно.
-- Рано показывай главную мысль.
-- Один абзац выполняет одну функцию.
-- Заменяй абстрактные обещания наблюдаемыми деталями, механизмом или примером.
-- Чередуй длину предложений естественно; не превращай текст в набор рубленых строк.
-- Удаляй повторы и вводные фразы.
-- Эмодзи — только если соответствуют голосу бренда.
-- Текст должен естественно произноситься вслух.
-- Не добавляй хэштеги, если их не запросили.
-
-# АНТИКЛИШЕ
-
-Избегай: «в современном мире», «ни для кого не секрет», «давайте разберёмся», «важно понимать» без конкретного продолжения, «уникальная возможность», «вывести на новый уровень», «не просто X, а Y» без реального противопоставления, «секрет, о котором все молчат», «ты точно делаешь это неправильно», «этот способ изменит твою жизнь», «сохрани, чтобы не потерять» без сохраняемой пользы, выдуманные признания и ложную уязвимость, чрезмерное количество тире, многоточий, вопросов и одинаковых списков по три пункта.
-
-Закрывающая фраза — утверждение, а не просьба. Не «как думаете?», «переубедите меня», «пишите в комментариях».
-
-# ДОСТОВЕРНОСТЬ
-
-- Не выдумывай подтверждения и не превращай корреляцию в причину.
-- Не используй «всегда», «никогда», «гарантированно», «лучший», «единственный» без доказательства.
-- Для медицинских, финансовых и юридических тем — только предоставленные проверенные данные.
-- Если доказательства нет, смягчи тезис: «может помочь», «по опыту автора», «один из способов» — когда это правда.
-- Различай факт, опыт, мнение и гипотезу.
-
-# ПОВЕДЕНИЕ ПРИ НЕХВАТКЕ ДАННЫХ
-
-Сначала используй базу бренда и контекст задачи. Делай только безопасные композиционные допущения, не вставляй допущение в текст как факт. Перечисли допущения в служебной карточке.
-
-Если пришлось бы выдумать факт, кейс, условие продукта или личный опыт — не выдумывай: используй гипотетическую формулировку («представьте ситуацию», «типичный случай») и отметь это в карточке.
-
-# ВНУТРЕННИЙ ПРОЦЕСС
-
-Перед написанием внутренне определи: аудиторию и ситуацию, ступень осознанности, цель, одну ключевую мысль, барьер, доказательство, угол подачи, каркас, триггер пересылки, CTA.
-
-Не показывай цепочку рассуждений. После черновика проведи редакторский и антиклишированный проход.
-
-# КОНТРОЛЬ КАЧЕСТВА
-
-Оцени себя внутренне по 10 критериям от 0 до 2: стратегия, ступень осознанности, одна мысль, хук, конкретика, голос автора, логика, нативность площадке, CTA, достоверность. Минимум 17 из 20, достоверность обязана быть 2. Если ниже — перепиши до выдачи.
-
-Финально проверь: понятна ли тема с первых строк, выполнено ли обещание хука, есть ли конкретика, можно ли удалить повторы, нет ли фраз, подходящих любому бренду, соответствует ли CTA готовности аудитории, нет ли выдуманных фактов, звучит ли текст естественно вслух.
-
-# ФОРМАТ ОТВЕТА
-
-Каждый раз, когда даёшь готовый текст (новый или отредактированный), отвечай строго так:
-
-###КАРТОЧКА_START###
-Ступень: [1-5]
-Ключевая мысль: [одно предложение]
-Каркас: [название использованного каркаса]
-Триггер: [главный триггер пересылки]
-CTA: [что человек должен сделать]
-Допущения: [что домыслил, или «нет»]
-###КАРТОЧКА_END###
-
-СЦЕНАРИЙ:
-[готовый текст целиком, без служебных пометок и названий блоков]${shootPlanInstr}
-
-Хуки выводи только если их явно попросили — тогда после ХУКИ:, каждый отдельной строкой, минимум 2 варианта, без повторного СЦЕНАРИЙ:.
-
-Отвечай на русском.`;
-
+  const send = async (msg) => {
+    if (!msg.trim()) return;
+    setInput("");
+    setLoading(true);
+    const { system } = buildPacket();
     const newChat = [...(reel.script_chat || []), { role: "user", content: msg }];
     onUpdate({ script_chat: newChat });
     let scriptGenerated = false;
     try {
       const messages = newChat.slice(-6).map(m => ({ role: m.role, content: m.content }));
-      const reply = await callAPI(messages, system, 2000);
+      const reply = await callAPI(messages, system, 2000, false, "scriptwriter");
       // The strategy card is shown as its own block above the script, not
       // in the chat transcript — strip it out of what gets saved to
       // script_chat so the user doesn't see the raw service markers there.
@@ -1939,7 +1838,7 @@ CTA: [что человек должен сделать]
     const finalScript = reel.selected_script >= 0 ? reel.script_versions?.[reel.selected_script] : "";
     const system = `Ты — Сценарист. Дай минимум 2 варианта хука (первая фраза ролика, 3 сек, до 12 слов) к финальному сценарию ниже. Ответь СТРОГО в формате: начни с ХУКИ:, каждый хук отдельной строкой, без другого текста до или после.\n\nСценарий:\n${finalScript}`;
     try {
-      const reply = await callAPI([{ role: "user", content: "Дай варианты хука к финальному сценарию." }], system, 400);
+      const reply = await callAPI([{ role: "user", content: "Дай варианты хука к финальному сценарию." }], system, 400, false, "scriptwriter");
       const hm = reply.match(/ХУКИ:([\s\S]+)/);
       const lines = hm ? hm[1].split("\n").map(l => l.replace(/^[-•\d.]+\s*/, "").trim()).filter(l => l.length > 10) : [];
       if (lines.length >= 2) {
@@ -2098,31 +1997,61 @@ function CarouselStep({ reel, profile, onUpdate, onAdvance }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const buildSystem = () => {
+  const buildPacket = () => {
     const lead = reel.lead_magnet_idx != null ? profile.leads?.[reel.lead_magnet_idx] : null;
-    let ctx = "";
-    if (profile.ca || profile.ca_files?.length) ctx += `=== ЦА ===\n${fieldContext(profile, "ca")}\n\n`;
-    if (profile.prod || profile.prod_files?.length) ctx += `=== ПРОДУКТЫ ===\n${fieldContext(profile, "prod")}\n\n`;
-    if (profile.tov || profile.tov_files?.length) ctx += `=== TOV ===\n${fieldContext(profile, "tov")}\n\n`;
-    ctx += buildMaterialsCtx(profile.materials, "script");
-
-    const ideaSummary = (reel.idea_chat || []).filter(m => m.role !== "note").slice(-3).map(m => `${m.role === "user" ? "Пользователь" : "Идеолог"}: ${m.content}`).join("\n").substring(0, 500);
-    const inputBlock = `ВХОДНЫЕ ДАННЫЕ:\nТема из плана: ${reel.topic}\nПлощадка: Instagram · Карусель\nЭтап Ханта: ${reel.hunt_stage ? `${reel.hunt_stage} — ${HUNT_HINTS[reel.hunt_stage]}` : "не определён"}\n${reel.agreed_angle ? `Согласованный с идеологом угол (ПРИОРИТЕТНЫЙ источник — пиши строго по нему):\n${reel.agreed_angle.raw}\n\nЕсли согласованный угол противоречит теме из плана — следуй согласованному углу, тема из плана нужна только для общего контекста ниши.` : ""}${ideaSummary ? `\n\nФрагменты обсуждения с Идеологом (детали, которых нет в согласованном угле, — используй если уместно):\n${ideaSummary}` : ""}`;
     const finalSlides = reel.selected_script >= 0 ? reel.script_versions?.[reel.selected_script] : "";
-
-    return `Ты — автор карусели для Instagram. Пишешь текст для слайдов, не сценарий для видео.\n\n${ctx}\n${inputBlock}\n${lead ? `Лид-магнит: ${lead.name} (${lead.link})` : ""}\n${finalSlides ? `Текущая карусель:\n${finalSlides}` : ""}\n\nСтруктура:\n— ОБЛОЖКА (слайд 1): короткий цепляющий заголовок крупным текстом — до 10 слов, останавливает скролл в ленте. Работает как хук: шок-факт/цифра, незаконченная мысль, личное признание, вопрос в боль, спор с распространённым мнением.\n— СЛАЙДЫ КОНТЕНТА: сам реши, сколько нужно — от 5 до 10 слайдов всего считая обложку и CTA, в зависимости от того, сколько реально смысла в теме. Не растягивай простую мысль ради количества и не сжимай сложную в три слайда. Каждый слайд — одна законченная мысль, коротко (на слайд читают за 2-3 секунды, не абзацами).\n— ПОСЛЕДНИЙ СЛАЙД — CTA. Тон зависит от ступени Ханта: 1-2 — мягко (сохранить/поделиться, без продажи), 3 — интерес к методу, 4-5 — прямой оффер с конкретикой.\n\nТон под TOV автора. Без канцеляризмов и штампов. Не больше 1 метафоры на всю карусель — на слайдах нет места на украшательства, только суть.\n\nФормат ответа — каждый раз, когда даёшь готовый текст карусели (новый или отредактированный), выводи целиком после СЛАЙДЫ:, слайды нумеруй так:\nСЛАЙД 1 (обложка): [текст]\nСЛАЙД 2: [текст]\n...\nСЛАЙД N (CTA): [текст]\n\nЕсли пользователь явно попросил варианты обложки — выводи их отдельно после ОБЛОЖКИ:, каждый вариант отдельной строкой, минимум 2 варианта, без повторного СЛАЙДЫ:.\nОтвечай на русском.`;
+    const angleText = reel.strategy_card
+      ? [reel.strategy_card.angle, reel.strategy_card.rationale, reel.strategy_card.funnelRole ? `Роль в воронке: ${reel.strategy_card.funnelRole}` : ""].filter(Boolean).join(". ")
+      : (reel.agreed_angle?.angle || "");
+    const packet = createContextPacket({
+      agent: "carousel",
+      profile: {
+        name: profile.name,
+        audience: fieldContext(profile, "ca"),
+        products: fieldContext(profile, "prod"),
+        toneOfVoice: fieldContext(profile, "tov"),
+        manualMemory: fieldContext(profile, "memory"),
+        learnedMemory: profile.learnedMemory || [],
+      },
+      content: {
+        topic: reel.topic,
+        planAnchor: reel.plan_anchor || "",
+        platform: "Instagram",
+        format: "Карусель",
+        huntStage: reel.hunt_stage,
+        huntStageHint: reel.hunt_stage ? HUNT_HINTS[reel.hunt_stage] : "",
+        agreedAngle: angleText,
+        selectedHook: reel.strategy_card?.hook || reel.agreed_angle?.hook || "",
+        contentGoal: reel.strategy_card?.contentGoal || "",
+        allowedFacts: reel.strategy_card?.allowedFacts || "",
+        userConstraints: reel.strategy_card?.userConstraints || "",
+        selectedLead: lead ? `${lead.name} (${lead.link})` : "",
+        strategyCard: reel.strategy_card || null,
+      },
+      // Same "script" use-flag as ScriptStep — the two are mutually
+      // exclusive per reel (a reel is either video-scripted or a
+      // carousel), so materials flagged for "script" apply to whichever
+      // one is actually active for this reel.
+      materials: profile.materials,
+      conversation: {
+        recentMessages: (reel.idea_chat || []).filter(m => m.role !== "note"),
+        latestUserEdit: finalSlides ? `Текущая карусель (учитывай текущий текст, включая ручные правки пользователя):\n${finalSlides}` : "",
+      },
+    });
+    const coreInstructions = carouselCore({ platform: "Instagram", format: "Карусель" });
+    return renderContextPacket(packet, { coreInstructions, stage: "script", requiresMemory: true });
   };
 
   const send = async (msg) => {
     if (!msg.trim()) return;
     setInput("");
     setLoading(true);
-    const system = buildSystem();
+    const { system } = buildPacket();
     const newChat = [...(reel.script_chat || []), { role: "user", content: msg }];
     onUpdate({ script_chat: newChat });
     try {
       const messages = newChat.slice(-6).map(m => ({ role: m.role, content: m.content }));
-      const reply = await callAPI(messages, system, 2200);
+      const reply = await callAPI(messages, system, 2200, false, "carousel");
       const updatedChat = [...newChat, { role: "assistant", content: reply }];
       let updates = { script_chat: updatedChat };
       const sm = reply.match(/СЛАЙДЫ:([\s\S]+?)(?:ОБЛОЖКИ:|$)/);
@@ -2161,7 +2090,7 @@ function CarouselStep({ reel, profile, onUpdate, onAdvance }) {
     const finalSlides = reel.selected_script >= 0 ? reel.script_versions?.[reel.selected_script] : "";
     const system = `Ты — автор карусели. Дай минимум 2 варианта текста обложки (первый слайд, крупный текст, до 10 слов) к финальной карусели ниже. Ответь СТРОГО в формате: начни с ОБЛОЖКИ:, каждый вариант отдельной строкой, без другого текста до или после.\n\nКарусель:\n${finalSlides}`;
     try {
-      const reply = await callAPI([{ role: "user", content: "Дай варианты обложки к финальной карусели." }], system, 400);
+      const reply = await callAPI([{ role: "user", content: "Дай варианты обложки к финальной карусели." }], system, 400, false, "carousel");
       const om = reply.match(/ОБЛОЖКИ:([\s\S]+)/);
       const lines = om ? om[1].split("\n").map(l => l.replace(/^(?:[-•]|\d+[.)])\s*/, "").trim()).filter(l => l.length > 5) : [];
       if (lines.length >= 2) {
@@ -2264,47 +2193,87 @@ function CarouselStep({ reel, profile, onUpdate, onAdvance }) {
 function CopyStep({ reel, profile, onUpdate }) {
   const [loading, setLoading] = useState(false);
 
-  const getCtx = () => {
-    let ctx = "";
-    if (profile.ca || profile.ca_files?.length) ctx += `=== ЦА ===\n${fieldContext(profile, "ca")}\n\n`;
-    if (profile.prod || profile.prod_files?.length) ctx += `=== ПРОДУКТЫ ===\n${fieldContext(profile, "prod")}\n\n`;
-    if (profile.tov || profile.tov_files?.length) ctx += `=== TOV ===\n${fieldContext(profile, "tov")}\n\n`;
-    ctx += buildMaterialsCtx(profile.materials, "copy");
-    const scriptSummary = (reel.script_chat || []).slice(-2).map(m => `${m.role === "user" ? "Пользователь" : "Сценарист"}: ${m.content}`).join("\n").substring(0, 400);
-    if (scriptSummary) ctx += `=== ОБСУЖДЕНИЕ ПРИ ПРАВКЕ СЦЕНАРИЯ (детали, которых нет в финальном тексте) ===\n${scriptSummary}\n\n`;
-    return ctx;
+  // No lead magnet is genuinely better than the wrong one — an irrelevant
+  // lead magnet CTA reads as spam. The old code fell back to leads?.[0]
+  // when nothing matched the Hunt stage; that's gone.
+  const getLead = () => {
+    if (reel.lead_magnet_idx != null) return profile.leads?.[reel.lead_magnet_idx];
+    return profile.leads?.find(l => {
+      const h = String(reel.hunt_stage);
+      if (l.hunt === "all") return true;
+      if (l.hunt === "1-2" && (h === "1" || h === "2")) return true;
+      if (l.hunt === "3" && h === "3") return true;
+      if (l.hunt === "4-5" && (h === "4" || h === "5")) return true;
+      return false;
+    });
   };
-
-  const getLead = () => reel.lead_magnet_idx != null ? profile.leads?.[reel.lead_magnet_idx] : profile.leads?.find(l => {
-    const h = String(reel.hunt_stage);
-    if (l.hunt === "all") return true;
-    if (l.hunt === "1-2" && (h === "1" || h === "2")) return true;
-    if (l.hunt === "3" && h === "3") return true;
-    if (l.hunt === "4-5" && (h === "4" || h === "5")) return true;
-    return false;
-  }) || profile.leads?.[0];
+  const leadText = (lead) => lead ? `${lead.name} · ${lead.link}${lead.desc ? ` · ${lead.desc}` : ""}` : "";
 
   const script = reel.selected_script >= 0 ? reel.script_versions?.[reel.selected_script] : reel.topic;
   const sourceIsVideo = VIDEO_FORMATS.includes(reel.format);
-  const isVideoAdjacentPlat = (key) => key === "tt" || key === "yt" || (key === "ig" && reel.format === "Reels");
-  const needsFullScript = (key) => isVideoAdjacentPlat(key) && !sourceIsVideo;
-  const bonusStructureInstr = (key) => isVideoAdjacentPlat(key)
-    ? `Описание физически отдельно от видео — не пересказывай видео. Структура: 1) короткая зацепка, обещающая доп. пользу (например "сохрани", "вот 5 способов") 2) самостоятельная бонусная польза — конкретный список/чек-лист/лайфхак, которого НЕТ в самом видео 3) CTA по ступени Ханта: 1-2 — просто польза + "сохрани", без давления; 3 — интерес к методу; 4-5 — бонус ведёт к лид-магниту/офферу.`
-    : `Структура: 1. Описание о чём ролик 2. Полезность 3. Лид-магнит + CTA.`;
-  const fullScriptInstr = `Исходный контент не был видео-форматом — помимо описания напиши ПОЛНЫЙ сценарий для видео (поле script): хук (3 сек, до 12 слов: шок-факт/цифра/незаконченная мысль/вопрос в боль) → было плохо (конкретная деталь) → перелом → стало так (результат) → CTA по ступени Ханта. Длина 30-60 сек речи.`;
   const baseFmts = { ig: '{"caption":"...","cta":"..."}', yt: '{"title":"...","description":"...","tags":["..."]}', tg: '{"caption":"..."}', tt: '{"overlay":"...","caption":"..."}', th: '{"text":"...","link_comment":"..."}', vk: '{"caption":"..."}' };
   const scriptFmts = { tt: '{"script":"...","overlay":"...","caption":"..."}', yt: '{"script":"...","title":"...","description":"...","tags":["..."]}' };
 
+  const angleText = () => reel.strategy_card
+    ? [reel.strategy_card.angle, reel.strategy_card.rationale, reel.strategy_card.funnelRole ? `Роль в воронке: ${reel.strategy_card.funnelRole}` : ""].filter(Boolean).join(". ")
+    : (reel.agreed_angle?.angle || "");
+
+  const commonPacketArgs = (lead) => ({
+    profile: {
+      name: profile.name,
+      audience: fieldContext(profile, "ca"),
+      products: fieldContext(profile, "prod"),
+      toneOfVoice: fieldContext(profile, "tov"),
+      manualMemory: fieldContext(profile, "memory"),
+      learnedMemory: profile.learnedMemory || [],
+    },
+    content: {
+      topic: reel.topic,
+      planAnchor: reel.plan_anchor || "",
+      format: reel.format,
+      huntStage: reel.hunt_stage,
+      huntStageHint: reel.hunt_stage ? HUNT_HINTS[reel.hunt_stage] : "",
+      agreedAngle: angleText(),
+      selectedHook: reel.strategy_card?.hook || reel.agreed_angle?.hook || "",
+      contentGoal: reel.strategy_card?.contentGoal || "",
+      allowedFacts: reel.strategy_card?.allowedFacts || "",
+      userConstraints: reel.strategy_card?.userConstraints || "",
+      selectedLead: leadText(lead),
+      strategyCard: reel.strategy_card || null,
+    },
+    materials: profile.materials,
+    // The final script/carousel text is sent as the user-message content
+    // below (as it always was) — this only carries cross-agent context
+    // (the discussion that shaped the final text isn't part of it).
+    conversation: { recentMessages: (reel.script_chat || []) },
+  });
+
+  const buildPacket = (key) => {
+    const platInstr = (profile.platInstr || DEFAULT_PLAT_INSTR)[key] || DEFAULT_PLAT_INSTR[key] || "";
+    const fullScript = copyNeedsFullScript(key, reel.format, sourceIsVideo);
+    const lead = getLead();
+    const packet = createContextPacket({ agent: "copywriter", ...commonPacketArgs(lead), content: { ...commonPacketArgs(lead).content, platform: PLATFORMS[key]?.name } });
+    const coreInstructions = copywriterCore({ key, platformName: PLATFORMS[key]?.name, platformInstr: platInstr, format: reel.format, sourceIsVideo });
+    const { system } = renderContextPacket(packet, { coreInstructions, stage: "copy", requiresMemory: true });
+    return { system, lead, fullScript };
+  };
+
+  const buildAllPacket = () => {
+    const lead = getLead();
+    const instrBlock = Object.entries(profile.platInstr || DEFAULT_PLAT_INSTR).map(([k, v]) => `${PLATFORMS[k]?.name}: ${v}`).join("\n\n");
+    const packet = createContextPacket({ agent: "copywriter", ...commonPacketArgs(lead) });
+    const coreInstructions = copywriterAllPlatformsCore({ instrBlock, format: reel.format, sourceIsVideo });
+    const { system } = renderContextPacket(packet, { coreInstructions, stage: "copy", requiresMemory: true });
+    return { system, lead };
+  };
+
   const genMain = async () => {
     setLoading(true);
-    const lead = getLead();
     const key = reel.platform;
-    const platInstr = (profile.platInstr || DEFAULT_PLAT_INSTR)[key] || DEFAULT_PLAT_INSTR[key] || "";
-    const fullScript = needsFullScript(key);
-    const system = `Ты — Копирайтер. TOV: ${fieldContext(profile, "tov")}. Инструкция площадки ${PLATFORMS[key]?.name}: ${platInstr}.\n${getCtx()}\n${reel.hunt_stage ? `Ступень Ханта: ${reel.hunt_stage} — тон CTA: 1-2 мягкий (сохранить/подписаться), 3 интерес к методу, 4-5 прямой оффер с конкретикой.` : ""}\n${key === "tt" ? "overlay — короткий текст НА видео (6-8 слов), caption — развёрнутый текст под видео." : ""}${key === "th" ? "Ссылку клади в link_comment, не в text — так принято в Threads." : ""}\n${bonusStructureInstr(key)}${fullScript ? `\n${fullScriptInstr}` : ""}\nПолезность пиши конкретно, без слов "полезно"/"качественный"/"уникальный" без опоры на факт. CTA — до 15 слов, без давления, на основе реальной пользы лид-магнита. Без канцеляризмов и конструкций "не X, а Y".\nОтвечай JSON без текста.`;
+    const { system, lead, fullScript } = buildPacket(key);
     const fmt = fullScript ? (scriptFmts[key] || baseFmts[key]) : baseFmts[key];
     try {
-      const raw = await callAPI([{ role: "user", content: `Напиши описание для ${PLATFORMS[key]?.name}.\n\nСценарий: ${script}\nЗаметки: ${reel.notes || "нет"}\n${lead ? `Лид-магнит: ${lead.name} · ${lead.link}` : ""}\n\nJSON: ${fmt}` }], system, fullScript ? 1800 : 1000);
+      const raw = await callAPI([{ role: "user", content: `Напиши описание для ${PLATFORMS[key]?.name}.\n\nСценарий: ${script}\nЗаметки: ${reel.notes || "нет"}\n${lead ? `Лид-магнит: ${leadText(lead)}` : "Лид-магнит не выбран — не упоминай его и не ссылайся на него в CTA."}\n\nJSON: ${fmt}` }], system, fullScript ? 1800 : 1000, false, "copywriter");
       const parsed = parseJSON(raw);
       onUpdate({ copy: { ...(reel.copy || {}), [key]: parsed } });
     } catch (e) { alert("Ошибка: " + e.message); }
@@ -2313,14 +2282,12 @@ function CopyStep({ reel, profile, onUpdate }) {
 
   const adaptAll = async () => {
     setLoading(true);
-    const lead = getLead();
-    const instrBlock = Object.entries(profile.platInstr || DEFAULT_PLAT_INSTR).map(([k, v]) => `${PLATFORMS[k]?.name}: ${v.substring(0, 120)}`).join("\n\n");
-    const system = `Ты — Копирайтер. TOV: ${fieldContext(profile, "tov")}.\n${getCtx()}\nИнструкции:\n${instrBlock}.\n${reel.hunt_stage ? `Ступень Ханта: ${reel.hunt_stage} — тон CTA: 1-2 мягкий, 3 интерес к методу, 4-5 прямой оффер.` : ""}\nДля TikTok (tt): overlay — короткий текст НА видео (6-8 слов), caption — текст под видео. Для Threads (th): ссылку клади в link_comment, не в text.\nДля площадок, где описание физически отдельно от видео (tt, yt, а также ig если формат ролика — Reels) — не пересказывай видео в описании: 1) короткая зацепка, обещающая доп. пользу 2) самостоятельная бонусная польза — список/чек-лист/лайфхак, которого нет в видео 3) CTA по ступени Ханта (1-2 мягко+сохрани, 3 интерес к методу, 4-5 бонус ведёт к офферу). Для остальных площадок (tg, th, vk, ig не-Reels) — структура описание/полезность/лид-магнит+CTA не меняется.\n${!sourceIsVideo ? fullScriptInstr + " Это касается только tt и yt." : ""}\nПолезность — конкретно, без общих слов без опоры на факт. CTA — до 15 слов, без давления. Без канцеляризмов и штампов "и вот почему"/"но есть нюанс".\nОтвечай JSON.`;
+    const { system, lead } = buildAllPacket();
     const jsonShape = sourceIsVideo
       ? `{"ig":{"caption":"...","cta":"..."},"yt":{"title":"...","description":"...","tags":["..."]},"tg":{"caption":"..."},"tt":{"overlay":"...","caption":"..."},"th":{"text":"...","link_comment":"..."},"vk":{"caption":"..."}}`
       : `{"ig":{"caption":"...","cta":"..."},"yt":{"script":"...","title":"...","description":"...","tags":["..."]},"tg":{"caption":"..."},"tt":{"script":"...","overlay":"...","caption":"..."},"th":{"text":"...","link_comment":"..."},"vk":{"caption":"..."}}`;
     try {
-      const raw = await callAPI([{ role: "user", content: `Адаптируй под все площадки.\nСценарий: ${script}\nЗаметки: ${reel.notes || "нет"}\n${lead ? `Лид-магнит: ${lead.name} · ${lead.link}` : ""}\n\nJSON:\n${jsonShape}` }], system, sourceIsVideo ? 3000 : 4000);
+      const raw = await callAPI([{ role: "user", content: `Адаптируй под все площадки.\nСценарий: ${script}\nЗаметки: ${reel.notes || "нет"}\n${lead ? `Лид-магнит: ${leadText(lead)}` : "Лид-магнит не выбран — не упоминай его и не ссылайся на него в CTA."}\n\nJSON:\n${jsonShape}` }], system, sourceIsVideo ? 3000 : 4000, false, "copywriter");
       const parsed = parseJSON(raw);
       onUpdate({ copy: { ...(reel.copy || {}), ...parsed } });
     } catch (e) { alert("Ошибка: " + e.message); }
@@ -2329,13 +2296,10 @@ function CopyStep({ reel, profile, onUpdate }) {
 
   const regenPlat = async (key) => {
     setLoading(true);
-    const lead = getLead();
-    const platInstr = (profile.platInstr || DEFAULT_PLAT_INSTR)[key] || DEFAULT_PLAT_INSTR[key] || "";
-    const fullScript = needsFullScript(key);
-    const system = `Ты — Копирайтер для ${PLATFORMS[key]?.name}. TOV: ${fieldContext(profile, "tov")}. Инструкция: ${platInstr}.\n${getCtx()}\n${reel.hunt_stage ? `Ступень Ханта: ${reel.hunt_stage} — тон CTA: 1-2 мягкий, 3 интерес к методу, 4-5 прямой оффер.` : ""}\n${key === "tt" ? "overlay — короткий текст НА видео (6-8 слов), caption — текст под видео." : ""}${key === "th" ? "Ссылку клади в link_comment, не в text." : ""}\n${bonusStructureInstr(key)}${fullScript ? `\n${fullScriptInstr}` : ""}\nКонкретная польза, CTA до 15 слов без давления, без канцеляризмов.\nОтвечай JSON.`;
+    const { system, lead, fullScript } = buildPacket(key);
     const fmt = fullScript ? (scriptFmts[key] || baseFmts[key]) : baseFmts[key];
     try {
-      const raw = await callAPI([{ role: "user", content: `Текст для ${PLATFORMS[key]?.name}.\nСценарий: ${script}\n${lead ? `Лид-магнит: ${lead.name} · ${lead.link}` : ""}\n\nJSON: ${fmt}` }], system, fullScript ? 1600 : 900);
+      const raw = await callAPI([{ role: "user", content: `Текст для ${PLATFORMS[key]?.name}.\nСценарий: ${script}\n${lead ? `Лид-магнит: ${leadText(lead)}` : "Лид-магнит не выбран — не упоминай его и не ссылайся на него в CTA."}\n\nJSON: ${fmt}` }], system, fullScript ? 1600 : 900, false, "copywriter");
       const parsed = parseJSON(raw);
       onUpdate({ copy: { ...(reel.copy || {}), [key]: parsed } });
     } catch (e) { alert("Ошибка: " + e.message); }
