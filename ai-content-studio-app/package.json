@@ -13,7 +13,8 @@
     "@upstash/redis": "^1.34.0",
     "mammoth": "^1.12.0",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "read-excel-file": "^9.3.5"
   },
   "devDependencies": {
     "@types/react": "^19.2.17",

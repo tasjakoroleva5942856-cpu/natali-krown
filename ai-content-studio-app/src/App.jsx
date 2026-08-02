@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import mammoth from "mammoth";
+import { readSheet } from "read-excel-file/web-worker";
 import { createContextPacket, renderContextPacket } from "./ai/contextBuilder.js";
 import { buildCoreInstructions as ideologistCore } from "./ai/prompts/ideologist.js";
 import { buildCoreInstructions as trendResearcherCore } from "./ai/prompts/trendResearcher.js";
@@ -77,6 +78,10 @@ function formatFileSize(bytes) {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} КБ`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
 }
+function csvEscapeCell(v) {
+  const s = v == null ? "" : String(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
 // Single entry point for reading an uploaded document into plain text,
 // shared by every upload control in the profile (ca/prod/tov/memory/materials).
 async function parseFile(file) {
@@ -86,9 +91,21 @@ async function parseFile(file) {
     const { value } = await mammoth.extractRawText({ arrayBuffer: buf });
     return { text: value, fileType: "docx" };
   }
+  if (ext === "xlsx" || ext === "xls") {
+    // Serialize the first sheet to CSV text rather than mapping columns
+    // ourselves — the same LLM-driven plan parser (buildPlanParserSystem)
+    // already turns arbitrary tabular/free text into the plan JSON shape,
+    // so there's no need for a second, format-specific mapping path.
+    const rows = await readSheet(file);
+    return { text: rows.map(row => row.map(csvEscapeCell).join(",")).join("\n"), fileType: "xlsx" };
+  }
+  if (ext === "csv") {
+    return { text: await file.text(), fileType: "csv" };
+  }
   return { text: await file.text(), fileType: ext === "md" ? "md" : "txt" };
 }
 const FILE_ACCEPT = ".txt,.md,text/plain,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const PLAN_FILE_ACCEPT = FILE_ACCEPT + ",.csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.xls,application/vnd.ms-excel";
 
 // ── API ──
 function getClientId() {
@@ -971,7 +988,8 @@ function UploadPlanModal({ onClose, onParsed }) {
     const file = e.target.files?.[0];
     if (!file) return;
     setFileName(file.name);
-    setText(await file.text());
+    const { text } = await parseFile(file);
+    setText(text);
   };
 
   const parse = async () => {
@@ -997,9 +1015,9 @@ function UploadPlanModal({ onClose, onParsed }) {
       <div style={{ ...s.modal, maxWidth: 520 }}>
         <button onClick={onClose} style={{ position: "absolute", top: 12, right: 12, background: COLORS.cream, border: `1.5px solid ${COLORS.brd}`, borderRadius: 6, width: 28, height: 28, cursor: "pointer", fontSize: 12, color: COLORS.brownS, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
         <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 6 }}>Загрузить свой план</div>
-        <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 12 }}>Вставь текст плана или загрузи файл — формат любой: список дат и тем, таблица, просто перечисление.</div>
+        <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 12 }}>Вставь текст плана или загрузи файл (.txt, .md, .docx, .xlsx, .csv) — формат любой: список дат и тем, таблица, просто перечисление.</div>
         <div style={{ marginBottom: 10 }}>
-          <input type="file" accept=".txt,.md,text/plain" onChange={handleFile} style={{ fontSize: 11 }} />
+          <input type="file" accept={PLAN_FILE_ACCEPT} onChange={handleFile} style={{ fontSize: 11 }} />
           {fileName && <div style={{ fontSize: 10, color: COLORS.brownS, marginTop: 4 }}>Файл: {fileName}</div>}
         </div>
         <textarea value={text} onChange={e => setText(e.target.value)} placeholder="Или вставь текст плана сюда..." rows={8} style={{ ...s.field, minHeight: 140, marginBottom: 10 }} />
@@ -1443,7 +1461,7 @@ function MiaNewsTab({ profile, onUpdateProfile, onWritePost }) {
 
 function MiaScreen({ profile, onUpdateProfile, onWritePost }) {
   const [subTab, setSubTab] = useState("plan");
-  const SUB_TABS = [["plan", "План"], ["news", "Новости"], ["idea", "Идея"], ["competitors", "Конкуренты"]];
+  const SUB_TABS = [["idea", "Идея"], ["news", "Новости"], ["plan", "План"], ["competitors", "Конкуренты"]];
 
   return (
     <div style={s.panel}>
