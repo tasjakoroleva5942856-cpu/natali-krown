@@ -299,7 +299,7 @@ function DocumentChip({ fileName, fileType, fileSize, onRemove }) {
   );
 }
 
-const EMPTY_PROFILE_FIELDS = { ca: "", prod: "", tov: "", memory: "", ca_files: [], prod_files: [], tov_files: [], memory_files: [], leads: [], materials: [], platInstr: { ...DEFAULT_PLAT_INSTR }, huntStage: null, profileType: "manual", contentPlan: null, competitors: [], competitorsLastFetched: null };
+const EMPTY_PROFILE_FIELDS = { ca: "", prod: "", tov: "", memory: "", ca_files: [], prod_files: [], tov_files: [], memory_files: [], leads: [], materials: [], platInstr: { ...DEFAULT_PLAT_INSTR }, huntStage: null, profileType: "manual", contentPlan: null, competitors: [], competitorsLastFetched: null, newsResults: [], newsInstruction: "" };
 function makeProfile(data) {
   return { id: "p-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: "Новая ниша", ...EMPTY_PROFILE_FIELDS, ...data, platInstr: { ...DEFAULT_PLAT_INSTR, ...(data.platInstr || {}) } };
 }
@@ -1405,17 +1405,20 @@ function MiaIdeaTab({ profile, onUpdateProfile, onWritePost }) {
 }
 
 function MiaNewsTab({ profile, onUpdateProfile, onWritePost }) {
-  const [instruction, setInstruction] = useState("");
+  const [instruction, setInstruction] = useState(profile.newsInstruction || "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [rawReply, setRawReply] = useState("");
-  const [topics, setTopics] = useState([]);
+  // Persisted on the profile (not just local state) — otherwise switching
+  // tabs unmounts MiaNewsTab and the results are gone, forcing a re-search.
+  const [topics, setTopics] = useState(profile.newsResults || []);
 
   const search = async () => {
     setLoading(true);
     setError("");
     setRawReply("");
     setTopics([]);
+    onUpdateProfile({ newsResults: [], newsInstruction: instruction });
     const packet = createContextPacket({ agent: "trend_researcher", profile: buildMiaProfileFields(profile), materials: profile.materials });
     const coreInstructions = trendResearcherCore({ userInstruction: instruction });
     const { system } = renderContextPacket(packet, { coreInstructions, stage: "idea", requiresMemory: false });
@@ -1424,7 +1427,9 @@ function MiaNewsTab({ profile, onUpdateProfile, onWritePost }) {
       raw = await callAPI([{ role: "user", content: "Найди актуальные инфоповоды в нише." }], system, 1600, true, "trend_researcher");
       if (!raw) throw new Error("Агент вернул пустой ответ. Попробуй ещё раз.");
       const parsed = raw.split(/(?=Вариант\s*\d+\s*:)/i).map(t => t.trim()).filter(Boolean);
-      setTopics(parsed.length ? parsed : [raw]);
+      const result = parsed.length ? parsed : [raw];
+      setTopics(result);
+      onUpdateProfile({ newsResults: result });
     } catch (e) {
       setError(e.message || "Ошибка запроса");
       setRawReply(raw);
@@ -1923,6 +1928,13 @@ function CardModal({ reel, profile, reels, onUpdate, onDelete }) {
   // opening on IdeaStep as before; only new cards get LeoStep.
   const isNewCard = reel.reveal_text !== undefined;
 
+  // Лео is a standalone agent screen now, not a step inside the old card —
+  // no topic/badges header, no Статус bar, no step tabs while on it. That
+  // chrome comes back once the card has moved on to Script/Carousel/Copy.
+  if (isNewCard && step === 0) {
+    return <LeoStep reel={reel} profile={profile} onUpdate={onUpdate} onAdvance={(target) => setStep(target)} />;
+  }
+
   return (
     <div>
       {/* HEADER */}
@@ -1955,11 +1967,7 @@ function CardModal({ reel, profile, reels, onUpdate, onDelete }) {
         ))}
       </div>
 
-      {step === 0 && (
-        isNewCard
-          ? <LeoStep reel={reel} profile={profile} onUpdate={onUpdate} onAdvance={(target) => setStep(target)} />
-          : <IdeaStep reel={reel} profile={profile} reels={reels} onUpdate={onUpdate} onAdvance={() => setStep(1)} />
-      )}
+      {step === 0 && <IdeaStep reel={reel} profile={profile} reels={reels} onUpdate={onUpdate} onAdvance={() => setStep(1)} />}
       {step === 1 && (
         reel.format === "Карусель"
           ? <CarouselStep reel={reel} profile={profile} onUpdate={onUpdate} onAdvance={() => setStep(2)} />
@@ -2252,13 +2260,19 @@ function LeoStep({ reel, profile, onUpdate, onAdvance }) {
   };
 
   return (
-    <div style={{ display: "flex", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
-      <div style={{ flex: "0.85 1 280px", minWidth: 280 }}>
-        <div style={{ ...s.card, display: "flex", flexDirection: "column", height: 420 }}>
-          <div style={{ background: COLORS.roseP, border: `1.5px solid ${COLORS.brd}`, borderRadius: 9, padding: "9px 11px", marginBottom: 8, fontSize: 11, color: COLORS.brown, lineHeight: 1.5, flexShrink: 0 }}>
-            <div style={{ fontWeight: 700, marginBottom: 3, color: COLORS.rose }}>От Мии</div>
-            {reel.topic && <div><strong>Тема:</strong> {reel.topic}</div>}
-            {reel.plan_anchor && <div><strong>Опора:</strong> {reel.plan_anchor}</div>}
+    <div>
+      {/* Standalone screen (not the old card chrome) — no leo.png asset yet,
+          same as the rest of the still-unrenamed team, so text-only header. */}
+      <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 2 }}>Лео — копирайтер</div>
+      <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 14 }}>Раскрывает тему от Мии в полноценный текст вашим голосом — дальше его адаптируют под площадку</div>
+
+      <div style={{ display: "flex", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
+        <div style={{ flex: "0.85 1 280px", minWidth: 280 }}>
+          <div style={{ ...s.card, display: "flex", flexDirection: "column", height: 420 }}>
+            <div style={{ background: COLORS.roseP, border: `1.5px solid ${COLORS.brd}`, borderRadius: 9, padding: "9px 11px", marginBottom: 8, fontSize: 11, color: COLORS.brown, lineHeight: 1.5, flexShrink: 0 }}>
+              <div style={{ fontWeight: 700, marginBottom: 3, color: COLORS.rose }}>От Мии</div>
+              {reel.topic && <div><strong>Тема:</strong> {reel.topic}</div>}
+              {reel.plan_anchor && <div><strong>Опора:</strong> {reel.plan_anchor}</div>}
             {reel.hunt_stage ? <div><strong>Ступень:</strong> {reel.hunt_stage} · {HUNT_HINTS[reel.hunt_stage]}</div> : null}
           </div>
           <div ref={chatRef} style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6, overflowY: "auto", marginBottom: 8 }}>
@@ -2310,6 +2324,7 @@ function LeoStep({ reel, profile, onUpdate, onAdvance }) {
           </div>
           <button onClick={submit} disabled={!reel.reveal_text} style={{ ...s.btnRose, width: "100%", marginTop: 12, opacity: reel.reveal_text ? 1 : .4 }}>Отправить агентам →</button>
         </div>
+      </div>
       </div>
     </div>
   );
