@@ -1373,6 +1373,74 @@ function MiaIdeaTab({ profile, onUpdateProfile, onWritePost }) {
   );
 }
 
+function MiaNewsTab({ profile, onUpdateProfile, onWritePost }) {
+  const [instruction, setInstruction] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [rawReply, setRawReply] = useState("");
+  const [topics, setTopics] = useState([]);
+
+  const search = async () => {
+    setLoading(true);
+    setError("");
+    setRawReply("");
+    setTopics([]);
+    const packet = createContextPacket({ agent: "trend_researcher", profile: buildMiaProfileFields(profile), materials: profile.materials });
+    const coreInstructions = trendResearcherCore({ userInstruction: instruction });
+    const { system } = renderContextPacket(packet, { coreInstructions, stage: "idea", requiresMemory: false });
+    let raw = "";
+    try {
+      raw = await callAPI([{ role: "user", content: "Найди актуальные инфоповоды в нише." }], system, 1600, true, "trend_researcher");
+      if (!raw) throw new Error("Агент вернул пустой ответ. Попробуй ещё раз.");
+      const parsed = raw.split(/(?=Вариант\s*\d+\s*:)/i).map(t => t.trim()).filter(Boolean);
+      setTopics(parsed.length ? parsed : [raw]);
+    } catch (e) {
+      setError(e.message || "Ошибка запроса");
+      setRawReply(raw);
+    }
+    setLoading(false);
+  };
+
+  const makeTopic = (text) => {
+    const topic = text.replace(/^Вариант\s*\d+\s*:\s*/i, "").trim();
+    const plan = profile.contentPlan;
+    const platform = plan?.platforms?.[0] || Object.keys(PLATFORMS)[0];
+    const newItem = { day: (plan?.items?.length || 0) + 1, platform, topic, stage: 2, anchor: "из новостей ниши" };
+    if (plan) {
+      onUpdateProfile({ contentPlan: { ...plan, items: [...plan.items, newItem] } });
+    } else {
+      onUpdateProfile({ contentPlan: { platforms: [platform], items: [newItem], chat: [], generatedAt: new Date().toISOString() } });
+    }
+  };
+
+  return (
+    <div>
+      <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 10 }}>Мия поищет актуальные инфоповоды в нише через веб-поиск и предложит темы под них.</div>
+      <span style={s.label}>Инструкция для поиска (необязательно)</span>
+      <textarea value={instruction} onChange={e => setInstruction(e.target.value)} placeholder="Например: обрати внимание на новости про..." rows={2} style={{ ...s.field, width: "100%", marginBottom: 8 }} />
+      <button onClick={search} disabled={loading} style={{ ...s.btnRose, opacity: loading ? .4 : 1 }}>{loading ? "Ищу..." : "🌍 Найти инфоповоды"}</button>
+
+      {error && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ fontSize: 11, color: "#DC2626", marginBottom: 6 }}>{error}</div>
+          {rawReply && <div style={{ fontSize: 10, color: COLORS.brownS, background: COLORS.cream, border: `1.5px solid ${COLORS.brd}`, borderRadius: 8, padding: 8, maxHeight: 120, overflowY: "auto", whiteSpace: "pre-wrap" }}>{rawReply}</div>}
+        </div>
+      )}
+
+      {topics.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 14 }}>
+          {topics.map((t, i) => (
+            <div key={i} style={{ background: COLORS.white, border: `1.5px solid ${COLORS.brd}`, borderRadius: 9, padding: "9px 11px", display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ fontSize: 12, lineHeight: 1.5 }}><MsgText text={t} /></div>
+              <button onClick={() => makeTopic(t)} style={{ ...s.btnOutline, ...s.btnSm, alignSelf: "flex-start" }}>+ Сделать темой</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MiaScreen({ profile, onUpdateProfile, onWritePost }) {
   const [subTab, setSubTab] = useState("plan");
   const SUB_TABS = [["plan", "План"], ["news", "Новости"], ["idea", "Идея"], ["competitors", "Конкуренты"]];
@@ -1396,7 +1464,7 @@ function MiaScreen({ profile, onUpdateProfile, onWritePost }) {
       </div>
 
       {subTab === "plan" && <MiaPlanTab profile={profile} onUpdateProfile={onUpdateProfile} onWritePost={onWritePost} />}
-      {subTab === "news" && <div style={{ fontSize: 12, color: COLORS.brownS, textAlign: "center", padding: "30px 0" }}>Скоро — поиск актуальных инфоповодов в нише.</div>}
+      {subTab === "news" && <MiaNewsTab profile={profile} onUpdateProfile={onUpdateProfile} onWritePost={onWritePost} />}
       {subTab === "idea" && <MiaIdeaTab profile={profile} onUpdateProfile={onUpdateProfile} onWritePost={onWritePost} />}
       {subTab === "competitors" && <div style={{ fontSize: 12, color: COLORS.brownS, textAlign: "center", padding: "30px 0" }}>Скоро — анализ конкурентов.</div>}
     </div>
@@ -1757,17 +1825,12 @@ function IdeaStep({ reel, profile, reels, onUpdate, onAdvance }) {
 
   useEffect(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight; }, [reel.idea_chat]);
 
-  // useSearch picks which agent answers this turn: the normal Идеолог, or
-  // the separate trend-researcher (button-triggered only, see the
-  // "🌍 Что происходит в нише сейчас" quick-reply below) — two distinct
-  // core-instruction files so the "short topic list, no market report"
-  // constraint never leaks into normal ideation and vice versa.
-  const buildPacket = (useSearch) => {
+  const buildPacket = () => {
     const existingTopics = reels.filter(x => x.id !== reel.id && x.topic).map(x => x.topic).join(", ");
     const lead = reel.lead_magnet_idx != null ? profile.leads?.[reel.lead_magnet_idx] : null;
     const p = PLATFORMS[reel.platform];
     const packet = createContextPacket({
-      agent: useSearch ? "trend_researcher" : "ideologist",
+      agent: "ideologist",
       profile: {
         name: profile.name,
         audience: fieldContext(profile, "ca"),
@@ -1791,22 +1854,20 @@ function IdeaStep({ reel, profile, reels, onUpdate, onAdvance }) {
       // duplicate it inside `system`.
       conversation: {},
     });
-    const coreInstructions = useSearch
-      ? trendResearcherCore({ platform: p?.name, format: reel.format })
-      : ideologistCore({ platform: p?.name, format: reel.format, existingTopics });
-    return renderContextPacket(packet, { coreInstructions, stage: "idea", requiresMemory: !useSearch });
+    const coreInstructions = ideologistCore({ platform: p?.name, format: reel.format, existingTopics });
+    return renderContextPacket(packet, { coreInstructions, stage: "idea", requiresMemory: true });
   };
 
-  const send = async (msg, useSearch = false) => {
+  const send = async (msg) => {
     if (!msg.trim()) return;
     setInput("");
     setLoading(true);
-    const { system } = buildPacket(useSearch);
+    const { system } = buildPacket();
     const newChat = [...(reel.idea_chat || []), { role: "user", content: msg }];
     onUpdate({ idea_chat: newChat });
     try {
       const messages = newChat.filter(m => m.role !== "note").slice(-6).map(m => ({ role: m.role, content: m.content }));
-      const reply = await callAPI(messages, system, 1600, useSearch, useSearch ? "trend_researcher" : "ideologist");
+      const reply = await callAPI(messages, system, 1600, false, "ideologist");
       const updatedChat = [...newChat, { role: "assistant", content: reply }];
       let updates = { idea_chat: updatedChat };
       // Match only an unambiguous single "ТЕМА:" line — not "ТЕМА 1:",
@@ -1898,7 +1959,6 @@ function IdeaStep({ reel, profile, reels, onUpdate, onAdvance }) {
         ].map(q => (
           <button key={q} onClick={() => send(q)} style={{ background: COLORS.cream, border: `1.5px solid ${COLORS.brd}`, borderRadius: 20, padding: "3px 9px", fontSize: 10, color: COLORS.brownS, cursor: "pointer" }}>{q}</button>
         ))}
-        <button onClick={() => send("Что происходит в нише сейчас?", true)} style={{ background: COLORS.cream, border: `1.5px solid ${COLORS.brd}`, borderRadius: 20, padding: "3px 9px", fontSize: 10, color: COLORS.brownS, cursor: "pointer" }}>🌍 Что происходит в нише сейчас</button>
       </div>
       <div style={{ display: "flex", gap: 6, alignItems: "flex-end" }}>
         <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }} placeholder="Сообщение Идеологу..." rows={1} style={{ ...s.field, flex: 1, minHeight: 38, maxHeight: 90 }} />
