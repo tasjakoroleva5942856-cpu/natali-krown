@@ -1928,11 +1928,39 @@ function CardModal({ reel, profile, reels, onUpdate, onDelete }) {
   // opening on IdeaStep as before; only new cards get LeoStep.
   const isNewCard = reel.reveal_text !== undefined;
 
-  // Лео is a standalone agent screen now, not a step inside the old card —
-  // no topic/badges header, no Статус bar, no step tabs while on it. That
-  // chrome comes back once the card has moved on to Script/Carousel/Copy.
-  if (isNewCard && step === 0) {
-    return <LeoStep reel={reel} profile={profile} onUpdate={onUpdate} onAdvance={(target) => setStep(target)} />;
+  // Лео/Кира/Ася/Тим/Заметки are all standalone agent screens now, not
+  // steps inside the old card — no topic/badges header, no Статус bar, no
+  // step tabs at any point in a new card's path. Each screen draws its own
+  // header instead (see LeoStep and friends). Old cards (!isNewCard) are
+  // untouched below — full old chrome, all four steps.
+  if (isNewCard) {
+    return (
+      <>
+        {step === 0 && <LeoStep reel={reel} profile={profile} onUpdate={onUpdate} onAdvance={(target) => setStep(target)} />}
+        {step === 1 && (
+          reel.format === "Карусель"
+            ? <CarouselStep reel={reel} profile={profile} onUpdate={onUpdate} onAdvance={() => setStep(2)} standalone />
+            : <ScriptStep reel={reel} profile={profile} onUpdate={onUpdate} onAdvance={() => setStep(2)} standalone />
+        )}
+        {step === 2 && <CopyStep reel={reel} profile={profile} onUpdate={onUpdate} onAdvance={() => setStep(3)} standalone />}
+        {step === 3 && (
+          <NotesStep reel={reel} onUpdate={onUpdate} onDeleteRequest={() => setShowConfirm(true)} standalone onBack={() => setStep(2)} />
+        )}
+
+        {showConfirm && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(35,18,26,.5)", zIndex: 400, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ background: "#fff", borderRadius: 12, padding: 20, maxWidth: 300, width: "90%", textAlign: "center" }}>
+              <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 6 }}>Удалить ролик?</div>
+              <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 16 }}>Это нельзя отменить.</div>
+              <div style={{ display: "flex", gap: 7, justifyContent: "center" }}>
+                <button style={{ ...s.btnRose, background: "#DC2626" }} onClick={onDelete}>Удалить</button>
+                <button style={s.btnOutline} onClick={() => setShowConfirm(false)}>Отмена</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </>
+    );
   }
 
   return (
@@ -1962,7 +1990,7 @@ function CardModal({ reel, profile, reels, onUpdate, onDelete }) {
 
       {/* STEP TABS */}
       <div style={{ display: "flex", border: `1.5px solid ${COLORS.brd}`, borderRadius: 9, overflow: "hidden", marginBottom: 16 }}>
-        {[isNewCard ? "1 · Лео" : "1 · Идея", reel.format === "Карусель" ? "2 · Слайды" : "2 · Сценарий", "3 · Тексты", "4 · Заметки"].map((t, i) => (
+        {["1 · Идея", reel.format === "Карусель" ? "2 · Слайды" : "2 · Сценарий", "3 · Тексты", "4 · Заметки"].map((t, i) => (
           <button key={i} onClick={() => setStep(i)} style={{ flex: 1, padding: "7px 4px", border: "none", borderRight: i < 3 ? `1px solid ${COLORS.brd}` : "none", background: step === i ? COLORS.rose : (i === 1 && reel.script_versions?.length) || (i === 2 && reel.copy && Object.keys(reel.copy).length) ? COLORS.greenL : COLORS.cream, color: step === i ? "#fff" : (i === 1 && reel.script_versions?.length) || (i === 2 && reel.copy && Object.keys(reel.copy).length) ? COLORS.green : COLORS.brownS, fontSize: 10, fontWeight: 700, cursor: "pointer", textAlign: "center" }}>{t}</button>
         ))}
       </div>
@@ -2331,7 +2359,7 @@ function LeoStep({ reel, profile, onUpdate, onAdvance }) {
 }
 
 // ── SCRIPT STEP ──
-function ScriptStep({ reel, profile, onUpdate, onAdvance }) {
+function ScriptStep({ reel, profile, onUpdate, onAdvance, standalone }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [hooksLoading, setHooksLoading] = useState(false);
@@ -2339,6 +2367,7 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance }) {
   const [scriptDraft, setScriptDraft] = useState(reel.script_versions?.[reel.selected_script] || "");
   const chatRef = useRef(null);
   const autoGenRef = useRef(false);
+  const p = PLATFORMS[reel.platform];
 
   useEffect(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight; }, [reel.script_chat]);
   useEffect(() => { setScriptDraft(reel.script_versions?.[reel.selected_script] || ""); }, [reel.selected_script, reel.script_versions]);
@@ -2484,121 +2513,258 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance }) {
     return mm ? mm[1].trim() : "";
   };
 
+  // Old cards (!standalone) keep the exact pre-Кира single-column layout —
+  // "Обратная совместимость для !isNewCard карточек — полностью без
+  // изменений" per ТЗ, not just "no missing features".
+  if (!standalone) {
+    return (
+      <div>
+        {!(reel.script_versions || []).length && (
+          <div style={{ marginBottom: 14 }}>
+            {reel.agreed_angle && (
+              <div style={{ background: COLORS.purpleL, border: `1.5px solid #C4B5FD`, borderRadius: 9, padding: "9px 11px", marginBottom: 10, fontSize: 11, color: COLORS.purple, lineHeight: 1.5 }}>
+                <div style={{ fontWeight: 700, marginBottom: 3 }}>✓ Угол согласован с Идеологом</div>
+                {reel.topic && <div><strong>Тема:</strong> {reel.topic}</div>}
+                {reel.agreed_angle.angle && <div><strong>Угол:</strong> {reel.agreed_angle.angle}</div>}
+                {reel.agreed_angle.rationale && <div><strong>Почему работает:</strong> {reel.agreed_angle.rationale}</div>}
+                {reel.agreed_angle.hook && <div><strong>Хук:</strong> {reel.agreed_angle.hook}</div>}
+              </div>
+            )}
+            <span style={s.label}>Идея (согласована на прошлом шаге — можно поправить)</span>
+            <textarea style={{ ...s.field, minHeight: 60 }} rows={3} value={reel.topic || ""} onChange={e => onUpdate({ topic: e.target.value })} placeholder="Тема ролика..." />
+            {isVideo && (
+              <div style={{ marginTop: 8 }}>
+                <span style={s.label}>Формат съёмки</span>
+                <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                  {[["talking_head", "🎤 Говорю на камеру"], ["voiceover", "🎙 Закадровый голос"], ["full_plan", "🎬 Нужен полный план"]].map(([key, label]) => (
+                    <button key={key} onClick={() => onUpdate({ shoot_format: key })} style={{ padding: "6px 10px", borderRadius: 7, border: `1.5px solid ${reel.shoot_format === key ? COLORS.rose : COLORS.brd}`, background: reel.shoot_format === key ? COLORS.rose : COLORS.cream, color: reel.shoot_format === key ? "#fff" : COLORS.brownS, fontSize: 11, fontWeight: reel.shoot_format === key ? 600 : 400, cursor: "pointer" }}>{label}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <button onClick={generateFromIdea} disabled={loading || !reel.topic?.trim() || (isVideo && !reel.shoot_format)} style={{ ...s.btnRose, width: "100%", marginTop: 8, opacity: (loading || !reel.topic?.trim() || (isVideo && !reel.shoot_format)) ? .5 : 1 }}>
+              {loading ? "Генерирую..." : "✦ Сгенерировать сценарий"}
+            </button>
+          </div>
+        )}
+        {(reel.script_versions || []).length > 0 && (
+          <div style={{ marginBottom: 10 }}>
+            <span style={s.label}>Версии сценария</span>
+            {reel.script_versions.map((v, i) => (
+              <div key={i} onClick={() => onUpdate({ selected_script: i })} style={{ display: "flex", alignItems: "flex-start", gap: 7, background: i === reel.selected_script ? COLORS.roseP : COLORS.cream, border: `1.5px solid ${i === reel.selected_script ? COLORS.rose : COLORS.brd}`, borderRadius: 8, padding: "8px 10px", marginBottom: 4, cursor: "pointer" }}>
+                <div style={{ width: 18, height: 18, borderRadius: "50%", background: i === reel.selected_script ? COLORS.rose : COLORS.brd, color: i === reel.selected_script ? "#fff" : COLORS.brownS, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, flexShrink: 0 }}>{i + 1}</div>
+                <div style={{ fontSize: 11, color: COLORS.brown, lineHeight: 1.4, flex: 1 }}>{v.substring(0, 110)}{v.length > 110 ? "..." : ""}</div>
+                {i === reel.selected_script && <div style={{ fontSize: 10, color: COLORS.green, fontWeight: 600, whiteSpace: "nowrap" }}>✓ Финальная</div>}
+              </div>
+            ))}
+          </div>
+        )}
+        {reel.script_strategy_card && (reel.script_versions || []).length > 0 && (
+          <div style={{ background: COLORS.purpleL, border: `1.5px solid #C4B5FD`, borderRadius: 9, padding: "9px 11px", marginBottom: 10, fontSize: 11, color: COLORS.purple, lineHeight: 1.5 }}>
+            <div style={{ fontWeight: 700, marginBottom: 3 }}>📋 Карточка стратегии</div>
+            {cardField("Ступень") && <div><strong>Ступень Ханта:</strong> {cardField("Ступень")}</div>}
+            {cardField("Ключевая мысль") && <div><strong>Ключевая мысль:</strong> {cardField("Ключевая мысль")}</div>}
+            {cardField("Каркас") && <div><strong>Каркас:</strong> {cardField("Каркас")}</div>}
+            {cardField("Триггер") && <div><strong>Триггер:</strong> {cardField("Триггер")}</div>}
+            {cardField("CTA") && <div><strong>CTA:</strong> {cardField("CTA")}</div>}
+            {cardField("Допущения") && <div><strong>Допущения:</strong> {cardField("Допущения")}</div>}
+          </div>
+        )}
+        {(reel.script_versions || []).length > 0 && reel.selected_script >= 0 && (
+          <div style={{ marginBottom: 10 }}>
+            <span style={s.label}>Текст выбранной версии (можно править вручную)</span>
+            <textarea value={scriptDraft} onChange={e => setScriptDraft(e.target.value)} onBlur={saveScriptEdit} style={{ ...s.field, minHeight: 140 }} rows={7} />
+            <button onClick={saveScriptEdit} style={{ ...s.btnOutline, ...s.btnSm, marginTop: 6 }}>Сохранить правки</button>
+          </div>
+        )}
+        {reel.shoot_plan && (
+          <div style={{ marginBottom: 10 }}>
+            <span style={s.label}>🎬 План съёмки</span>
+            <div style={{ fontSize: 11, color: COLORS.brown, lineHeight: 1.6, whiteSpace: "pre-wrap", background: COLORS.cream, borderRadius: 8, padding: 9, border: `1.5px solid ${COLORS.brd}` }}>{reel.shoot_plan}</div>
+          </div>
+        )}
+        <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 8 }}>{(reel.script_versions || []).length ? "Правки и новые версии — прямо в чате. Каждая версия сохраняется." : "Отредактируй идею выше и нажми «Сгенерировать сценарий», или сразу опиши, что нужно, в чате."}</div>
+        <div ref={chatRef} style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 220, overflowY: "auto", marginBottom: 8 }}>
+          {(reel.script_chat || []).map((m, i) => <div key={i} style={s.chatMsg(m.role)}><MsgText text={m.content} /></div>)}
+          {loading && <div style={{ ...s.chatMsg("assistant"), opacity: .6, fontStyle: "italic" }}>Думаю...</div>}
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 7 }}>
+          {["Напиши с нуля", "Короче", "3 варианта хука", "+ История", "Усиль триггер", "Живее"].map(q => (
+            <button key={q} onClick={() => send(q)} style={{ background: COLORS.cream, border: `1.5px solid ${COLORS.brd}`, borderRadius: 20, padding: "3px 9px", fontSize: 10, color: COLORS.brownS, cursor: "pointer" }}>{q}</button>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "flex-end" }}>
+          <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }} placeholder="Черновик или правки Сценаристу..." rows={1} style={{ ...s.field, flex: 1, minHeight: 38, maxHeight: 90 }} />
+          <button onClick={() => send(input)} disabled={loading} style={{ ...s.btnRose, width: 36, height: 36, padding: 0, flexShrink: 0, opacity: loading ? .4 : 1 }}>→</button>
+        </div>
+        {hasHooks && (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ height: 1, background: COLORS.brd, margin: "12px 0" }} />
+            <span style={s.label}>Хуки (⭐ — финальный)</span>
+            {reel.hooks.map((h, i) => (
+              <div key={i} onClick={() => onUpdate({ selected_hook: i })} style={{ display: "flex", alignItems: "flex-start", gap: 7, background: i === (reel.selected_hook || 0) ? COLORS.roseP : COLORS.cream, border: `1.5px solid ${i === (reel.selected_hook || 0) ? COLORS.rose : COLORS.brd}`, borderRadius: 8, padding: "8px 10px", marginBottom: 5, cursor: "pointer" }}>
+                <span style={{ fontSize: 12, opacity: i === (reel.selected_hook || 0) ? 1 : .35 }}>⭐</span>
+                <span style={{ fontSize: 12, color: COLORS.brown, lineHeight: 1.4, flex: 1 }}>{h}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{ height: 1, background: COLORS.brd, margin: "14px 0 10px" }} />
+        {hooksError && (
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 11, color: "#DC2626", marginBottom: 6 }}>{hooksError}</div>
+            <button onClick={onAdvance} style={{ ...s.btnOutline, ...s.btnSm }}>Перейти без хуков →</button>
+          </div>
+        )}
+        {hasHooks ? (
+          <button onClick={onAdvance} disabled={reel.selected_script < 0} style={{ ...s.btnRose, width: "100%", opacity: reel.selected_script >= 0 ? 1 : .4, cursor: reel.selected_script >= 0 ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+            Дальше к Копирайтеру →
+          </button>
+        ) : (
+          <button onClick={requestHooks} disabled={reel.selected_script < 0 || hooksLoading} style={{ ...s.btnRose, width: "100%", opacity: (reel.selected_script >= 0 && !hooksLoading) ? 1 : .4, cursor: (reel.selected_script >= 0 && !hooksLoading) ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+            {hooksLoading ? "Подбираю хуки..." : "Сценарий согласован — показать хуки →"}
+          </button>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div>
-      {!(reel.script_versions || []).length && (
-        <div style={{ marginBottom: 14 }}>
-          {reel.agreed_angle && (
-            <div style={{ background: COLORS.purpleL, border: `1.5px solid #C4B5FD`, borderRadius: 9, padding: "9px 11px", marginBottom: 10, fontSize: 11, color: COLORS.purple, lineHeight: 1.5 }}>
-              <div style={{ fontWeight: 700, marginBottom: 3 }}>✓ Угол согласован с Идеологом</div>
-              {reel.topic && <div><strong>Тема:</strong> {reel.topic}</div>}
-              {reel.agreed_angle.angle && <div><strong>Угол:</strong> {reel.agreed_angle.angle}</div>}
-              {reel.agreed_angle.rationale && <div><strong>Почему работает:</strong> {reel.agreed_angle.rationale}</div>}
-              {reel.agreed_angle.hook && <div><strong>Хук:</strong> {reel.agreed_angle.hook}</div>}
-            </div>
-          )}
-          <span style={s.label}>Идея (согласована на прошлом шаге — можно поправить)</span>
-          <textarea style={{ ...s.field, minHeight: 60 }} rows={3} value={reel.topic || ""} onChange={e => onUpdate({ topic: e.target.value })} placeholder="Тема ролика..." />
-          {isVideo && (
-            <div style={{ marginTop: 8 }}>
-              <span style={s.label}>Формат съёмки</span>
-              <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-                {[["talking_head", "🎤 Говорю на камеру"], ["voiceover", "🎙 Закадровый голос"], ["full_plan", "🎬 Нужен полный план"]].map(([key, label]) => (
-                  <button key={key} onClick={() => onUpdate({ shoot_format: key })} style={{ padding: "6px 10px", borderRadius: 7, border: `1.5px solid ${reel.shoot_format === key ? COLORS.rose : COLORS.brd}`, background: reel.shoot_format === key ? COLORS.rose : COLORS.cream, color: reel.shoot_format === key ? "#fff" : COLORS.brownS, fontSize: 11, fontWeight: reel.shoot_format === key ? 600 : 400, cursor: "pointer" }}>{label}</button>
-                ))}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+        <img src="/agents/kira.png" alt="Кира" style={{ width: 48, height: 48, objectFit: "contain", flexShrink: 0 }} />
+        <div style={{ fontSize: 18, fontWeight: 800 }}>Кира — сценарист</div>
+      </div>
+      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center", marginBottom: 14 }}>
+        <Badge bg={COLORS.blueL} color={COLORS.blue}>{p?.icon} {p?.name} · {reel.format}</Badge>
+        {reel.hunt_stage ? <Badge bg={COLORS.roseL} color={COLORS.rose}>Ступень {reel.hunt_stage}</Badge> : null}
+      </div>
+
+      <div style={{ display: "flex", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
+        <div style={{ flex: "0.85 1 280px", minWidth: 280 }}>
+          <div style={{ ...s.card, display: "flex", flexDirection: "column", height: 420 }}>
+            {reel.reveal_text && (
+              <div style={{ background: COLORS.roseP, border: `1.5px solid ${COLORS.brd}`, borderRadius: 9, padding: "9px 11px", marginBottom: 8, fontSize: 11, color: COLORS.brown, lineHeight: 1.5, flexShrink: 0 }}>
+                <div style={{ fontWeight: 700, marginBottom: 3, color: COLORS.rose }}>От Лео</div>
+                <div>{reel.reveal_text.slice(0, 150)}{reel.reveal_text.length > 150 ? "…" : ""}</div>
               </div>
+            )}
+            <div ref={chatRef} style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6, overflowY: "auto", marginBottom: 8 }}>
+              {!(reel.script_chat || []).length && <div style={{ fontSize: 11, color: COLORS.brownS, fontStyle: "italic" }}>Отредактируй идею справа и нажми «Сгенерировать сценарий», или сразу опиши, что нужно, здесь.</div>}
+              {(reel.script_chat || []).map((m, i) => <div key={i} style={s.chatMsg(m.role)}><MsgText text={m.content} /></div>)}
+              {loading && <div style={{ ...s.chatMsg("assistant"), opacity: .6, fontStyle: "italic" }}>Думаю...</div>}
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 7 }}>
+              {["Напиши с нуля", "Короче", "3 варианта хука", "+ История", "Усиль триггер", "Живее"].map(q => (
+                <button key={q} onClick={() => send(q)} style={{ background: COLORS.cream, border: `1.5px solid ${COLORS.brd}`, borderRadius: 20, padding: "3px 9px", fontSize: 10, color: COLORS.brownS, cursor: "pointer" }}>{q}</button>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 6, alignItems: "flex-end" }}>
+              <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }} placeholder="Черновик или правки Сценаристу..." rows={1} style={{ ...s.field, flex: 1, minHeight: 38, maxHeight: 90 }} />
+              <button onClick={() => send(input)} disabled={loading} style={{ ...s.btnRose, width: 36, height: 36, padding: 0, flexShrink: 0, opacity: loading ? .4 : 1 }}>→</button>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ flex: "1.15 1 340px", minWidth: 280 }}>
+          {!(reel.script_versions || []).length && (
+            <div style={{ ...s.card, marginBottom: 14 }}>
+              {reel.agreed_angle && (
+                <div style={{ background: COLORS.purpleL, border: `1.5px solid #C4B5FD`, borderRadius: 9, padding: "9px 11px", marginBottom: 10, fontSize: 11, color: COLORS.purple, lineHeight: 1.5 }}>
+                  <div style={{ fontWeight: 700, marginBottom: 3 }}>✓ Угол согласован с Идеологом</div>
+                  {reel.topic && <div><strong>Тема:</strong> {reel.topic}</div>}
+                  {reel.agreed_angle.angle && <div><strong>Угол:</strong> {reel.agreed_angle.angle}</div>}
+                  {reel.agreed_angle.rationale && <div><strong>Почему работает:</strong> {reel.agreed_angle.rationale}</div>}
+                  {reel.agreed_angle.hook && <div><strong>Хук:</strong> {reel.agreed_angle.hook}</div>}
+                </div>
+              )}
+              <span style={s.label}>Идея (согласована на прошлом шаге — можно поправить)</span>
+              <textarea style={{ ...s.field, minHeight: 60 }} rows={3} value={reel.topic || ""} onChange={e => onUpdate({ topic: e.target.value })} placeholder="Тема ролика..." />
+              {isVideo && (
+                <div style={{ marginTop: 8 }}>
+                  <span style={s.label}>Формат съёмки</span>
+                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                    {[["talking_head", "🎤 Говорю на камеру"], ["voiceover", "🎙 Закадровый голос"], ["full_plan", "🎬 Нужен полный план"]].map(([key, label]) => (
+                      <button key={key} onClick={() => onUpdate({ shoot_format: key })} style={{ padding: "6px 10px", borderRadius: 7, border: `1.5px solid ${reel.shoot_format === key ? COLORS.rose : COLORS.brd}`, background: reel.shoot_format === key ? COLORS.rose : COLORS.cream, color: reel.shoot_format === key ? "#fff" : COLORS.brownS, fontSize: 11, fontWeight: reel.shoot_format === key ? 600 : 400, cursor: "pointer" }}>{label}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <button onClick={generateFromIdea} disabled={loading || !reel.topic?.trim() || (isVideo && !reel.shoot_format)} style={{ ...s.btnRose, width: "100%", marginTop: 8, opacity: (loading || !reel.topic?.trim() || (isVideo && !reel.shoot_format)) ? .5 : 1 }}>
+                {loading ? "Генерирую..." : "✦ Сгенерировать сценарий"}
+              </button>
             </div>
           )}
-          <button onClick={generateFromIdea} disabled={loading || !reel.topic?.trim() || (isVideo && !reel.shoot_format)} style={{ ...s.btnRose, width: "100%", marginTop: 8, opacity: (loading || !reel.topic?.trim() || (isVideo && !reel.shoot_format)) ? .5 : 1 }}>
-            {loading ? "Генерирую..." : "✦ Сгенерировать сценарий"}
-          </button>
-        </div>
-      )}
-      {/* VERSIONS */}
-      {(reel.script_versions || []).length > 0 && (
-        <div style={{ marginBottom: 10 }}>
-          <span style={s.label}>Версии сценария</span>
-          {reel.script_versions.map((v, i) => (
-            <div key={i} onClick={() => onUpdate({ selected_script: i })} style={{ display: "flex", alignItems: "flex-start", gap: 7, background: i === reel.selected_script ? COLORS.roseP : COLORS.cream, border: `1.5px solid ${i === reel.selected_script ? COLORS.rose : COLORS.brd}`, borderRadius: 8, padding: "8px 10px", marginBottom: 4, cursor: "pointer" }}>
-              <div style={{ width: 18, height: 18, borderRadius: "50%", background: i === reel.selected_script ? COLORS.rose : COLORS.brd, color: i === reel.selected_script ? "#fff" : COLORS.brownS, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, flexShrink: 0 }}>{i + 1}</div>
-              <div style={{ fontSize: 11, color: COLORS.brown, lineHeight: 1.4, flex: 1 }}>{v.substring(0, 110)}{v.length > 110 ? "..." : ""}</div>
-              {i === reel.selected_script && <div style={{ fontSize: 10, color: COLORS.green, fontWeight: 600, whiteSpace: "nowrap" }}>✓ Финальная</div>}
+          {(reel.script_versions || []).length > 0 && (
+            <div style={{ ...s.card, marginBottom: 10 }}>
+              <span style={s.label}>Версии сценария</span>
+              {reel.script_versions.map((v, i) => (
+                <div key={i} onClick={() => onUpdate({ selected_script: i })} style={{ display: "flex", alignItems: "flex-start", gap: 7, background: i === reel.selected_script ? COLORS.roseP : COLORS.cream, border: `1.5px solid ${i === reel.selected_script ? COLORS.rose : COLORS.brd}`, borderRadius: 8, padding: "8px 10px", marginBottom: 4, cursor: "pointer" }}>
+                  <div style={{ width: 18, height: 18, borderRadius: "50%", background: i === reel.selected_script ? COLORS.rose : COLORS.brd, color: i === reel.selected_script ? "#fff" : COLORS.brownS, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, flexShrink: 0 }}>{i + 1}</div>
+                  <div style={{ fontSize: 11, color: COLORS.brown, lineHeight: 1.4, flex: 1 }}>{v.substring(0, 110)}{v.length > 110 ? "..." : ""}</div>
+                  {i === reel.selected_script && <div style={{ fontSize: 10, color: COLORS.green, fontWeight: 600, whiteSpace: "nowrap" }}>✓ Финальная</div>}
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      )}
-      {reel.script_strategy_card && (reel.script_versions || []).length > 0 && (
-        <div style={{ background: COLORS.purpleL, border: `1.5px solid #C4B5FD`, borderRadius: 9, padding: "9px 11px", marginBottom: 10, fontSize: 11, color: COLORS.purple, lineHeight: 1.5 }}>
-          <div style={{ fontWeight: 700, marginBottom: 3 }}>📋 Карточка стратегии</div>
-          {cardField("Ступень") && <div><strong>Ступень Ханта:</strong> {cardField("Ступень")}</div>}
-          {cardField("Ключевая мысль") && <div><strong>Ключевая мысль:</strong> {cardField("Ключевая мысль")}</div>}
-          {cardField("Каркас") && <div><strong>Каркас:</strong> {cardField("Каркас")}</div>}
-          {cardField("Триггер") && <div><strong>Триггер:</strong> {cardField("Триггер")}</div>}
-          {cardField("CTA") && <div><strong>CTA:</strong> {cardField("CTA")}</div>}
-          {cardField("Допущения") && <div><strong>Допущения:</strong> {cardField("Допущения")}</div>}
-        </div>
-      )}
-      {(reel.script_versions || []).length > 0 && reel.selected_script >= 0 && (
-        <div style={{ marginBottom: 10 }}>
-          <span style={s.label}>Текст выбранной версии (можно править вручную)</span>
-          <textarea value={scriptDraft} onChange={e => setScriptDraft(e.target.value)} onBlur={saveScriptEdit} style={{ ...s.field, minHeight: 140 }} rows={7} />
-          <button onClick={saveScriptEdit} style={{ ...s.btnOutline, ...s.btnSm, marginTop: 6 }}>Сохранить правки</button>
-        </div>
-      )}
-      {reel.shoot_plan && (
-        <div style={{ marginBottom: 10 }}>
-          <span style={s.label}>🎬 План съёмки</span>
-          <div style={{ fontSize: 11, color: COLORS.brown, lineHeight: 1.6, whiteSpace: "pre-wrap", background: COLORS.cream, borderRadius: 8, padding: 9, border: `1.5px solid ${COLORS.brd}` }}>{reel.shoot_plan}</div>
-        </div>
-      )}
-      <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 8 }}>{(reel.script_versions || []).length ? "Правки и новые версии — прямо в чате. Каждая версия сохраняется." : "Отредактируй идею выше и нажми «Сгенерировать сценарий», или сразу опиши, что нужно, в чате."}</div>
-      <div ref={chatRef} style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 220, overflowY: "auto", marginBottom: 8 }}>
-        {(reel.script_chat || []).map((m, i) => <div key={i} style={s.chatMsg(m.role)}><MsgText text={m.content} /></div>)}
-        {loading && <div style={{ ...s.chatMsg("assistant"), opacity: .6, fontStyle: "italic" }}>Думаю...</div>}
-      </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 7 }}>
-        {["Напиши с нуля", "Короче", "3 варианта хука", "+ История", "Усиль триггер", "Живее"].map(q => (
-          <button key={q} onClick={() => send(q)} style={{ background: COLORS.cream, border: `1.5px solid ${COLORS.brd}`, borderRadius: 20, padding: "3px 9px", fontSize: 10, color: COLORS.brownS, cursor: "pointer" }}>{q}</button>
-        ))}
-      </div>
-      <div style={{ display: "flex", gap: 6, alignItems: "flex-end" }}>
-        <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }} placeholder="Черновик или правки Сценаристу..." rows={1} style={{ ...s.field, flex: 1, minHeight: 38, maxHeight: 90 }} />
-        <button onClick={() => send(input)} disabled={loading} style={{ ...s.btnRose, width: 36, height: 36, padding: 0, flexShrink: 0, opacity: loading ? .4 : 1 }}>→</button>
-      </div>
-      {hasHooks && (
-        <div style={{ marginTop: 12 }}>
-          <div style={{ height: 1, background: COLORS.brd, margin: "12px 0" }} />
-          <span style={s.label}>Хуки (⭐ — финальный)</span>
-          {reel.hooks.map((h, i) => (
-            <div key={i} onClick={() => onUpdate({ selected_hook: i })} style={{ display: "flex", alignItems: "flex-start", gap: 7, background: i === (reel.selected_hook || 0) ? COLORS.roseP : COLORS.cream, border: `1.5px solid ${i === (reel.selected_hook || 0) ? COLORS.rose : COLORS.brd}`, borderRadius: 8, padding: "8px 10px", marginBottom: 5, cursor: "pointer" }}>
-              <span style={{ fontSize: 12, opacity: i === (reel.selected_hook || 0) ? 1 : .35 }}>⭐</span>
-              <span style={{ fontSize: 12, color: COLORS.brown, lineHeight: 1.4, flex: 1 }}>{h}</span>
+          )}
+          {reel.script_strategy_card && (reel.script_versions || []).length > 0 && (
+            <div style={{ background: COLORS.purpleL, border: `1.5px solid #C4B5FD`, borderRadius: 9, padding: "9px 11px", marginBottom: 10, fontSize: 11, color: COLORS.purple, lineHeight: 1.5 }}>
+              <div style={{ fontWeight: 700, marginBottom: 3 }}>📋 Карточка стратегии</div>
+              {cardField("Ступень") && <div><strong>Ступень Ханта:</strong> {cardField("Ступень")}</div>}
+              {cardField("Ключевая мысль") && <div><strong>Ключевая мысль:</strong> {cardField("Ключевая мысль")}</div>}
+              {cardField("Каркас") && <div><strong>Каркас:</strong> {cardField("Каркас")}</div>}
+              {cardField("Триггер") && <div><strong>Триггер:</strong> {cardField("Триггер")}</div>}
+              {cardField("CTA") && <div><strong>CTA:</strong> {cardField("CTA")}</div>}
+              {cardField("Допущения") && <div><strong>Допущения:</strong> {cardField("Допущения")}</div>}
             </div>
-          ))}
+          )}
+          {(reel.script_versions || []).length > 0 && reel.selected_script >= 0 && (
+            <div style={{ ...s.card, marginBottom: 10 }}>
+              <span style={s.label}>Текст выбранной версии (можно править вручную)</span>
+              <textarea value={scriptDraft} onChange={e => setScriptDraft(e.target.value)} onBlur={saveScriptEdit} style={{ ...s.field, minHeight: 140 }} rows={7} />
+              <button onClick={saveScriptEdit} style={{ ...s.btnOutline, ...s.btnSm, marginTop: 6 }}>Сохранить правки</button>
+            </div>
+          )}
+          {reel.shoot_plan && (
+            <div style={{ ...s.card, marginBottom: 10 }}>
+              <span style={s.label}>🎬 План съёмки</span>
+              <div style={{ fontSize: 11, color: COLORS.brown, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{reel.shoot_plan}</div>
+            </div>
+          )}
+          {hasHooks && (
+            <div style={{ ...s.card, marginBottom: 10 }}>
+              <span style={s.label}>Хуки (⭐ — финальный)</span>
+              {reel.hooks.map((h, i) => (
+                <div key={i} onClick={() => onUpdate({ selected_hook: i })} style={{ display: "flex", alignItems: "flex-start", gap: 7, background: i === (reel.selected_hook || 0) ? COLORS.roseP : COLORS.cream, border: `1.5px solid ${i === (reel.selected_hook || 0) ? COLORS.rose : COLORS.brd}`, borderRadius: 8, padding: "8px 10px", marginBottom: 5, cursor: "pointer" }}>
+                  <span style={{ fontSize: 12, opacity: i === (reel.selected_hook || 0) ? 1 : .35 }}>⭐</span>
+                  <span style={{ fontSize: 12, color: COLORS.brown, lineHeight: 1.4, flex: 1 }}>{h}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {hooksError && (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: 11, color: "#DC2626", marginBottom: 6 }}>{hooksError}</div>
+              <button onClick={onAdvance} style={{ ...s.btnOutline, ...s.btnSm }}>Перейти без хуков →</button>
+            </div>
+          )}
+          {hasHooks ? (
+            <button onClick={onAdvance} disabled={reel.selected_script < 0} style={{ ...s.btnRose, width: "100%", opacity: reel.selected_script >= 0 ? 1 : .4, cursor: reel.selected_script >= 0 ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+              Дальше к Тиму →
+            </button>
+          ) : (
+            <button onClick={requestHooks} disabled={reel.selected_script < 0 || hooksLoading} style={{ ...s.btnRose, width: "100%", opacity: (reel.selected_script >= 0 && !hooksLoading) ? 1 : .4, cursor: (reel.selected_script >= 0 && !hooksLoading) ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+              {hooksLoading ? "Подбираю хуки..." : "Сценарий согласован — показать хуки →"}
+            </button>
+          )}
         </div>
-      )}
-      <div style={{ height: 1, background: COLORS.brd, margin: "14px 0 10px" }} />
-      {hooksError && (
-        <div style={{ marginBottom: 8 }}>
-          <div style={{ fontSize: 11, color: "#DC2626", marginBottom: 6 }}>{hooksError}</div>
-          <button onClick={onAdvance} style={{ ...s.btnOutline, ...s.btnSm }}>Перейти без хуков →</button>
-        </div>
-      )}
-      {hasHooks ? (
-        <button onClick={onAdvance} disabled={reel.selected_script < 0} style={{ ...s.btnRose, width: "100%", opacity: reel.selected_script >= 0 ? 1 : .4, cursor: reel.selected_script >= 0 ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-          Дальше к Копирайтеру →
-        </button>
-      ) : (
-        <button onClick={requestHooks} disabled={reel.selected_script < 0 || hooksLoading} style={{ ...s.btnRose, width: "100%", opacity: (reel.selected_script >= 0 && !hooksLoading) ? 1 : .4, cursor: (reel.selected_script >= 0 && !hooksLoading) ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-          {hooksLoading ? "Подбираю хуки..." : "Сценарий согласован — показать хуки →"}
-        </button>
-      )}
+      </div>
     </div>
   );
 }
 
 // ── CAROUSEL STEP ──
-function CarouselStep({ reel, profile, onUpdate, onAdvance }) {
+function CarouselStep({ reel, profile, onUpdate, onAdvance, standalone }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [coversLoading, setCoversLoading] = useState(false);
@@ -2730,91 +2896,206 @@ function CarouselStep({ reel, profile, onUpdate, onAdvance }) {
 
   const hasCovers = (reel.hooks || []).length > 0;
 
+  // Old cards keep the exact pre-Ася single-column layout — same rationale
+  // as ScriptStep above.
+  if (!standalone) {
+    return (
+      <div>
+        {!(reel.script_versions || []).length && (
+          <div style={{ marginBottom: 14 }}>
+            {reel.agreed_angle && (
+              <div style={{ background: COLORS.purpleL, border: `1.5px solid #C4B5FD`, borderRadius: 9, padding: "9px 11px", marginBottom: 10, fontSize: 11, color: COLORS.purple, lineHeight: 1.5 }}>
+                <div style={{ fontWeight: 700, marginBottom: 3 }}>✓ Угол согласован с Идеологом</div>
+                {reel.topic && <div><strong>Тема:</strong> {reel.topic}</div>}
+                {reel.agreed_angle.angle && <div><strong>Угол:</strong> {reel.agreed_angle.angle}</div>}
+              </div>
+            )}
+            <span style={s.label}>Идея (согласована на прошлом шаге — можно поправить)</span>
+            <textarea style={{ ...s.field, minHeight: 60 }} rows={3} value={reel.topic || ""} onChange={e => onUpdate({ topic: e.target.value })} placeholder="Тема карусели..." />
+            <button onClick={generateFromIdea} disabled={loading || !reel.topic?.trim()} style={{ ...s.btnRose, width: "100%", marginTop: 8, opacity: (loading || !reel.topic?.trim()) ? .5 : 1 }}>
+              {loading ? "Генерирую..." : "✦ Сгенерировать карусель"}
+            </button>
+          </div>
+        )}
+        {(reel.script_versions || []).length > 0 && (
+          <div style={{ marginBottom: 10 }}>
+            <span style={s.label}>Версии карусели</span>
+            {reel.script_versions.map((v, i) => (
+              <div key={i} onClick={() => onUpdate({ selected_script: i })} style={{ display: "flex", alignItems: "flex-start", gap: 7, background: i === reel.selected_script ? COLORS.roseP : COLORS.cream, border: `1.5px solid ${i === reel.selected_script ? COLORS.rose : COLORS.brd}`, borderRadius: 8, padding: "8px 10px", marginBottom: 4, cursor: "pointer" }}>
+                <div style={{ width: 18, height: 18, borderRadius: "50%", background: i === reel.selected_script ? COLORS.rose : COLORS.brd, color: i === reel.selected_script ? "#fff" : COLORS.brownS, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, flexShrink: 0 }}>{i + 1}</div>
+                <div style={{ fontSize: 11, color: COLORS.brown, lineHeight: 1.4, flex: 1 }}>{v.substring(0, 110)}{v.length > 110 ? "..." : ""}</div>
+                {i === reel.selected_script && <div style={{ fontSize: 10, color: COLORS.green, fontWeight: 600, whiteSpace: "nowrap" }}>✓ Финальная</div>}
+              </div>
+            ))}
+          </div>
+        )}
+        {(reel.script_versions || []).length > 0 && reel.selected_script >= 0 && (
+          <div style={{ marginBottom: 10 }}>
+            <span style={s.label}>Слайды (можно править вручную)</span>
+            <textarea value={slidesDraft} onChange={e => setSlidesDraft(e.target.value)} onBlur={saveSlidesEdit} style={{ ...s.field, minHeight: 180 }} rows={9} />
+            <button onClick={saveSlidesEdit} style={{ ...s.btnOutline, ...s.btnSm, marginTop: 6 }}>Сохранить правки</button>
+          </div>
+        )}
+        <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 8 }}>{(reel.script_versions || []).length ? "Правки и новые версии — прямо в чате. Каждая версия сохраняется." : "Отредактируй идею выше и нажми «Сгенерировать карусель», или сразу опиши, что нужно, в чате."}</div>
+        <div ref={chatRef} style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 220, overflowY: "auto", marginBottom: 8 }}>
+          {(reel.script_chat || []).map((m, i) => <div key={i} style={s.chatMsg(m.role)}><MsgText text={m.content} /></div>)}
+          {loading && <div style={{ ...s.chatMsg("assistant"), opacity: .6, fontStyle: "italic" }}>Думаю...</div>}
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 7 }}>
+          {["Напиши с нуля", "Меньше слайдов", "Больше слайдов", "3 варианта обложки", "Усиль обложку", "Живее"].map(q => (
+            <button key={q} onClick={() => send(q)} style={{ background: COLORS.cream, border: `1.5px solid ${COLORS.brd}`, borderRadius: 20, padding: "3px 9px", fontSize: 10, color: COLORS.brownS, cursor: "pointer" }}>{q}</button>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "flex-end" }}>
+          <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }} placeholder="Черновик или правки по карусели..." rows={1} style={{ ...s.field, flex: 1, minHeight: 38, maxHeight: 90 }} />
+          <button onClick={() => send(input)} disabled={loading} style={{ ...s.btnRose, width: 36, height: 36, padding: 0, flexShrink: 0, opacity: loading ? .4 : 1 }}>→</button>
+        </div>
+        {hasCovers && (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ height: 1, background: COLORS.brd, margin: "12px 0" }} />
+            <span style={s.label}>Варианты обложки (⭐ — финальный)</span>
+            {reel.hooks.map((h, i) => (
+              <div key={i} onClick={() => onUpdate({ selected_hook: i })} style={{ display: "flex", alignItems: "flex-start", gap: 7, background: i === (reel.selected_hook || 0) ? COLORS.roseP : COLORS.cream, border: `1.5px solid ${i === (reel.selected_hook || 0) ? COLORS.rose : COLORS.brd}`, borderRadius: 8, padding: "8px 10px", marginBottom: 5, cursor: "pointer" }}>
+                <span style={{ fontSize: 12, opacity: i === (reel.selected_hook || 0) ? 1 : .35 }}>⭐</span>
+                <span style={{ fontSize: 12, color: COLORS.brown, lineHeight: 1.4, flex: 1 }}>{h}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{ height: 1, background: COLORS.brd, margin: "14px 0 10px" }} />
+        {coversError && (
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 11, color: "#DC2626", marginBottom: 6 }}>{coversError}</div>
+            <button onClick={onAdvance} style={{ ...s.btnOutline, ...s.btnSm }}>Перейти без вариантов обложки →</button>
+          </div>
+        )}
+        {hasCovers ? (
+          <button onClick={onAdvance} disabled={reel.selected_script < 0} style={{ ...s.btnRose, width: "100%", opacity: reel.selected_script >= 0 ? 1 : .4, cursor: reel.selected_script >= 0 ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+            Дальше к Копирайтеру →
+          </button>
+        ) : (
+          <button onClick={requestCovers} disabled={reel.selected_script < 0 || coversLoading} style={{ ...s.btnRose, width: "100%", opacity: (reel.selected_script >= 0 && !coversLoading) ? 1 : .4, cursor: (reel.selected_script >= 0 && !coversLoading) ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+            {coversLoading ? "Подбираю варианты..." : "Карусель готова — варианты обложки →"}
+          </button>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div>
-      {!(reel.script_versions || []).length && (
-        <div style={{ marginBottom: 14 }}>
-          {reel.agreed_angle && (
-            <div style={{ background: COLORS.purpleL, border: `1.5px solid #C4B5FD`, borderRadius: 9, padding: "9px 11px", marginBottom: 10, fontSize: 11, color: COLORS.purple, lineHeight: 1.5 }}>
-              <div style={{ fontWeight: 700, marginBottom: 3 }}>✓ Угол согласован с Идеологом</div>
-              {reel.topic && <div><strong>Тема:</strong> {reel.topic}</div>}
-              {reel.agreed_angle.angle && <div><strong>Угол:</strong> {reel.agreed_angle.angle}</div>}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+        <img src="/agents/asya.png" alt="Ася" style={{ width: 48, height: 48, objectFit: "contain", flexShrink: 0 }} />
+        <div style={{ fontSize: 18, fontWeight: 800 }}>Ася — карусели</div>
+      </div>
+      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center", marginBottom: 14 }}>
+        <Badge bg={COLORS.blueL} color={COLORS.blue}>{PLATFORMS.ig.icon} Instagram · Карусель</Badge>
+        {reel.hunt_stage ? <Badge bg={COLORS.roseL} color={COLORS.rose}>Ступень {reel.hunt_stage}</Badge> : null}
+      </div>
+
+      <div style={{ display: "flex", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
+        <div style={{ flex: "0.85 1 280px", minWidth: 280 }}>
+          <div style={{ ...s.card, display: "flex", flexDirection: "column", height: 420 }}>
+            {reel.reveal_text && (
+              <div style={{ background: COLORS.roseP, border: `1.5px solid ${COLORS.brd}`, borderRadius: 9, padding: "9px 11px", marginBottom: 8, fontSize: 11, color: COLORS.brown, lineHeight: 1.5, flexShrink: 0 }}>
+                <div style={{ fontWeight: 700, marginBottom: 3, color: COLORS.rose }}>От Лео</div>
+                <div>{reel.reveal_text.slice(0, 150)}{reel.reveal_text.length > 150 ? "…" : ""}</div>
+              </div>
+            )}
+            <div ref={chatRef} style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6, overflowY: "auto", marginBottom: 8 }}>
+              {!(reel.script_chat || []).length && <div style={{ fontSize: 11, color: COLORS.brownS, fontStyle: "italic" }}>Отредактируй идею справа и нажми «Сгенерировать карусель», или сразу опиши, что нужно, здесь.</div>}
+              {(reel.script_chat || []).map((m, i) => <div key={i} style={s.chatMsg(m.role)}><MsgText text={m.content} /></div>)}
+              {loading && <div style={{ ...s.chatMsg("assistant"), opacity: .6, fontStyle: "italic" }}>Думаю...</div>}
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 7 }}>
+              {["Напиши с нуля", "Меньше слайдов", "Больше слайдов", "3 варианта обложки", "Усиль обложку", "Живее"].map(q => (
+                <button key={q} onClick={() => send(q)} style={{ background: COLORS.cream, border: `1.5px solid ${COLORS.brd}`, borderRadius: 20, padding: "3px 9px", fontSize: 10, color: COLORS.brownS, cursor: "pointer" }}>{q}</button>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 6, alignItems: "flex-end" }}>
+              <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }} placeholder="Черновик или правки по карусели..." rows={1} style={{ ...s.field, flex: 1, minHeight: 38, maxHeight: 90 }} />
+              <button onClick={() => send(input)} disabled={loading} style={{ ...s.btnRose, width: 36, height: 36, padding: 0, flexShrink: 0, opacity: loading ? .4 : 1 }}>→</button>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ flex: "1.15 1 340px", minWidth: 280 }}>
+          {!(reel.script_versions || []).length && (
+            <div style={{ ...s.card, marginBottom: 14 }}>
+              {reel.agreed_angle && (
+                <div style={{ background: COLORS.purpleL, border: `1.5px solid #C4B5FD`, borderRadius: 9, padding: "9px 11px", marginBottom: 10, fontSize: 11, color: COLORS.purple, lineHeight: 1.5 }}>
+                  <div style={{ fontWeight: 700, marginBottom: 3 }}>✓ Угол согласован с Идеологом</div>
+                  {reel.topic && <div><strong>Тема:</strong> {reel.topic}</div>}
+                  {reel.agreed_angle.angle && <div><strong>Угол:</strong> {reel.agreed_angle.angle}</div>}
+                </div>
+              )}
+              <span style={s.label}>Идея (согласована на прошлом шаге — можно поправить)</span>
+              <textarea style={{ ...s.field, minHeight: 60 }} rows={3} value={reel.topic || ""} onChange={e => onUpdate({ topic: e.target.value })} placeholder="Тема карусели..." />
+              <button onClick={generateFromIdea} disabled={loading || !reel.topic?.trim()} style={{ ...s.btnRose, width: "100%", marginTop: 8, opacity: (loading || !reel.topic?.trim()) ? .5 : 1 }}>
+                {loading ? "Генерирую..." : "✦ Сгенерировать карусель"}
+              </button>
             </div>
           )}
-          <span style={s.label}>Идея (согласована на прошлом шаге — можно поправить)</span>
-          <textarea style={{ ...s.field, minHeight: 60 }} rows={3} value={reel.topic || ""} onChange={e => onUpdate({ topic: e.target.value })} placeholder="Тема карусели..." />
-          <button onClick={generateFromIdea} disabled={loading || !reel.topic?.trim()} style={{ ...s.btnRose, width: "100%", marginTop: 8, opacity: (loading || !reel.topic?.trim()) ? .5 : 1 }}>
-            {loading ? "Генерирую..." : "✦ Сгенерировать карусель"}
-          </button>
-        </div>
-      )}
-      {(reel.script_versions || []).length > 0 && (
-        <div style={{ marginBottom: 10 }}>
-          <span style={s.label}>Версии карусели</span>
-          {reel.script_versions.map((v, i) => (
-            <div key={i} onClick={() => onUpdate({ selected_script: i })} style={{ display: "flex", alignItems: "flex-start", gap: 7, background: i === reel.selected_script ? COLORS.roseP : COLORS.cream, border: `1.5px solid ${i === reel.selected_script ? COLORS.rose : COLORS.brd}`, borderRadius: 8, padding: "8px 10px", marginBottom: 4, cursor: "pointer" }}>
-              <div style={{ width: 18, height: 18, borderRadius: "50%", background: i === reel.selected_script ? COLORS.rose : COLORS.brd, color: i === reel.selected_script ? "#fff" : COLORS.brownS, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, flexShrink: 0 }}>{i + 1}</div>
-              <div style={{ fontSize: 11, color: COLORS.brown, lineHeight: 1.4, flex: 1 }}>{v.substring(0, 110)}{v.length > 110 ? "..." : ""}</div>
-              {i === reel.selected_script && <div style={{ fontSize: 10, color: COLORS.green, fontWeight: 600, whiteSpace: "nowrap" }}>✓ Финальная</div>}
+          {(reel.script_versions || []).length > 0 && (
+            <div style={{ ...s.card, marginBottom: 10 }}>
+              <span style={s.label}>Версии карусели</span>
+              {reel.script_versions.map((v, i) => (
+                <div key={i} onClick={() => onUpdate({ selected_script: i })} style={{ display: "flex", alignItems: "flex-start", gap: 7, background: i === reel.selected_script ? COLORS.roseP : COLORS.cream, border: `1.5px solid ${i === reel.selected_script ? COLORS.rose : COLORS.brd}`, borderRadius: 8, padding: "8px 10px", marginBottom: 4, cursor: "pointer" }}>
+                  <div style={{ width: 18, height: 18, borderRadius: "50%", background: i === reel.selected_script ? COLORS.rose : COLORS.brd, color: i === reel.selected_script ? "#fff" : COLORS.brownS, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, flexShrink: 0 }}>{i + 1}</div>
+                  <div style={{ fontSize: 11, color: COLORS.brown, lineHeight: 1.4, flex: 1 }}>{v.substring(0, 110)}{v.length > 110 ? "..." : ""}</div>
+                  {i === reel.selected_script && <div style={{ fontSize: 10, color: COLORS.green, fontWeight: 600, whiteSpace: "nowrap" }}>✓ Финальная</div>}
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      )}
-      {(reel.script_versions || []).length > 0 && reel.selected_script >= 0 && (
-        <div style={{ marginBottom: 10 }}>
-          <span style={s.label}>Слайды (можно править вручную)</span>
-          <textarea value={slidesDraft} onChange={e => setSlidesDraft(e.target.value)} onBlur={saveSlidesEdit} style={{ ...s.field, minHeight: 180 }} rows={9} />
-          <button onClick={saveSlidesEdit} style={{ ...s.btnOutline, ...s.btnSm, marginTop: 6 }}>Сохранить правки</button>
-        </div>
-      )}
-      <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 8 }}>{(reel.script_versions || []).length ? "Правки и новые версии — прямо в чате. Каждая версия сохраняется." : "Отредактируй идею выше и нажми «Сгенерировать карусель», или сразу опиши, что нужно, в чате."}</div>
-      <div ref={chatRef} style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 220, overflowY: "auto", marginBottom: 8 }}>
-        {(reel.script_chat || []).map((m, i) => <div key={i} style={s.chatMsg(m.role)}><MsgText text={m.content} /></div>)}
-        {loading && <div style={{ ...s.chatMsg("assistant"), opacity: .6, fontStyle: "italic" }}>Думаю...</div>}
-      </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 7 }}>
-        {["Напиши с нуля", "Меньше слайдов", "Больше слайдов", "3 варианта обложки", "Усиль обложку", "Живее"].map(q => (
-          <button key={q} onClick={() => send(q)} style={{ background: COLORS.cream, border: `1.5px solid ${COLORS.brd}`, borderRadius: 20, padding: "3px 9px", fontSize: 10, color: COLORS.brownS, cursor: "pointer" }}>{q}</button>
-        ))}
-      </div>
-      <div style={{ display: "flex", gap: 6, alignItems: "flex-end" }}>
-        <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }} placeholder="Черновик или правки по карусели..." rows={1} style={{ ...s.field, flex: 1, minHeight: 38, maxHeight: 90 }} />
-        <button onClick={() => send(input)} disabled={loading} style={{ ...s.btnRose, width: 36, height: 36, padding: 0, flexShrink: 0, opacity: loading ? .4 : 1 }}>→</button>
-      </div>
-      {hasCovers && (
-        <div style={{ marginTop: 12 }}>
-          <div style={{ height: 1, background: COLORS.brd, margin: "12px 0" }} />
-          <span style={s.label}>Варианты обложки (⭐ — финальный)</span>
-          {reel.hooks.map((h, i) => (
-            <div key={i} onClick={() => onUpdate({ selected_hook: i })} style={{ display: "flex", alignItems: "flex-start", gap: 7, background: i === (reel.selected_hook || 0) ? COLORS.roseP : COLORS.cream, border: `1.5px solid ${i === (reel.selected_hook || 0) ? COLORS.rose : COLORS.brd}`, borderRadius: 8, padding: "8px 10px", marginBottom: 5, cursor: "pointer" }}>
-              <span style={{ fontSize: 12, opacity: i === (reel.selected_hook || 0) ? 1 : .35 }}>⭐</span>
-              <span style={{ fontSize: 12, color: COLORS.brown, lineHeight: 1.4, flex: 1 }}>{h}</span>
+          )}
+          {(reel.script_versions || []).length > 0 && reel.selected_script >= 0 && (
+            <div style={{ ...s.card, marginBottom: 10 }}>
+              {/* Slides are still one edited text block, same as generation
+                  always produced — the mockup's "cover as its own block on
+                  top" would need parsing slide boundaries out of that text,
+                  which isn't part of the data model today and the mockup
+                  image wasn't included with this ТЗ to verify a safe split
+                  against. Left as one block rather than guessing a parse
+                  that could silently mangle real carousels. */}
+              <span style={s.label}>Слайды (можно править вручную)</span>
+              <textarea value={slidesDraft} onChange={e => setSlidesDraft(e.target.value)} onBlur={saveSlidesEdit} style={{ ...s.field, minHeight: 180 }} rows={9} />
+              <button onClick={saveSlidesEdit} style={{ ...s.btnOutline, ...s.btnSm, marginTop: 6 }}>Сохранить правки</button>
             </div>
-          ))}
+          )}
+          {hasCovers && (
+            <div style={{ ...s.card, marginBottom: 10 }}>
+              <span style={s.label}>Варианты обложки (⭐ — финальный)</span>
+              {reel.hooks.map((h, i) => (
+                <div key={i} onClick={() => onUpdate({ selected_hook: i })} style={{ display: "flex", alignItems: "flex-start", gap: 7, background: i === (reel.selected_hook || 0) ? COLORS.roseP : COLORS.cream, border: `1.5px solid ${i === (reel.selected_hook || 0) ? COLORS.rose : COLORS.brd}`, borderRadius: 8, padding: "8px 10px", marginBottom: 5, cursor: "pointer" }}>
+                  <span style={{ fontSize: 12, opacity: i === (reel.selected_hook || 0) ? 1 : .35 }}>⭐</span>
+                  <span style={{ fontSize: 12, color: COLORS.brown, lineHeight: 1.4, flex: 1 }}>{h}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {coversError && (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: 11, color: "#DC2626", marginBottom: 6 }}>{coversError}</div>
+              <button onClick={onAdvance} style={{ ...s.btnOutline, ...s.btnSm }}>Перейти без вариантов обложки →</button>
+            </div>
+          )}
+          {hasCovers ? (
+            <button onClick={onAdvance} disabled={reel.selected_script < 0} style={{ ...s.btnRose, width: "100%", opacity: reel.selected_script >= 0 ? 1 : .4, cursor: reel.selected_script >= 0 ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+              Дальше к Тиму →
+            </button>
+          ) : (
+            <button onClick={requestCovers} disabled={reel.selected_script < 0 || coversLoading} style={{ ...s.btnRose, width: "100%", opacity: (reel.selected_script >= 0 && !coversLoading) ? 1 : .4, cursor: (reel.selected_script >= 0 && !coversLoading) ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+              {coversLoading ? "Подбираю варианты..." : "Карусель готова — варианты обложки →"}
+            </button>
+          )}
         </div>
-      )}
-      <div style={{ height: 1, background: COLORS.brd, margin: "14px 0 10px" }} />
-      {coversError && (
-        <div style={{ marginBottom: 8 }}>
-          <div style={{ fontSize: 11, color: "#DC2626", marginBottom: 6 }}>{coversError}</div>
-          <button onClick={onAdvance} style={{ ...s.btnOutline, ...s.btnSm }}>Перейти без вариантов обложки →</button>
-        </div>
-      )}
-      {hasCovers ? (
-        <button onClick={onAdvance} disabled={reel.selected_script < 0} style={{ ...s.btnRose, width: "100%", opacity: reel.selected_script >= 0 ? 1 : .4, cursor: reel.selected_script >= 0 ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-          Дальше к Копирайтеру →
-        </button>
-      ) : (
-        <button onClick={requestCovers} disabled={reel.selected_script < 0 || coversLoading} style={{ ...s.btnRose, width: "100%", opacity: (reel.selected_script >= 0 && !coversLoading) ? 1 : .4, cursor: (reel.selected_script >= 0 && !coversLoading) ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-          {coversLoading ? "Подбираю варианты..." : "Карусель готова — варианты обложки →"}
-        </button>
-      )}
+      </div>
     </div>
   );
 }
 
 // ── COPY STEP ──
-function CopyStep({ reel, profile, onUpdate }) {
+function CopyStep({ reel, profile, onUpdate, onAdvance, standalone }) {
   const [loading, setLoading] = useState(false);
 
   // No lead magnet is genuinely better than the wrong one — an irrelevant
@@ -2955,40 +3236,130 @@ function CopyStep({ reel, profile, onUpdate }) {
   };
 
   const ordered = [reel.platform, ...Object.keys(PLATFORMS).filter(k => k !== reel.platform)];
+  // CopyStep never had a chat/send flow (only button-triggered generation)
+  // — the ТЗ's "слева чат" would mean inventing a new conversational call,
+  // which the "не меняется логика генерации" constraint rules out. Shown
+  // instead: a handoff plaque from whichever agent produced the source
+  // text, same visual slot as Кира/Ася's "от Лео" plaque.
+  const isCarousel = reel.format === "Карусель";
+  const handoffLabel = isCarousel ? "От Аси" : (reel.script_versions?.length ? "От Киры" : "От Лео");
+
+  // Old cards keep the exact pre-Тим single-column layout — same rationale
+  // as ScriptStep/CarouselStep above.
+  if (!standalone) {
+    return (
+      <div>
+        <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 10 }}>Копирайтер напишет по структуре: описание / полезность / лид-магнит + CTA</div>
+        {loading && <div style={{ height: 3, background: COLORS.brd, borderRadius: 2, overflow: "hidden", marginBottom: 10 }}><div style={{ height: "100%", background: `linear-gradient(90deg,${COLORS.rose},#F472B6)`, animation: "lp 1.6s ease-in-out infinite" }} /></div>}
+        <div style={{ marginBottom: 10, display: "flex", gap: 7, flexWrap: "wrap" }}>
+          <button style={{ ...s.btnRose, ...s.btnSm }} onClick={genMain} disabled={loading}>✦ Написать тексты</button>
+          <button style={{ ...s.btnOutline, ...s.btnSm }} onClick={adaptAll} disabled={loading}>⇄ Все площадки</button>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          {ordered.map(key => (
+            <div key={key} style={{ background: COLORS.white, border: `1.5px solid ${COLORS.brd}`, borderRadius: 10, padding: 11 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                <div style={{ fontWeight: 700, fontSize: 12, color: COLORS.brown, display: "flex", alignItems: "center", gap: 4 }}>
+                  {PLATFORMS[key]?.icon} {PLATFORMS[key]?.name}
+                  {key === reel.platform && <Badge bg={COLORS.roseL} color={COLORS.rose}>основная</Badge>}
+                </div>
+                <div style={{ display: "flex", gap: 4 }}>
+                  <button onClick={() => copyToClipboard(key)} style={{ ...s.btnOutline, padding: "2px 7px", fontSize: 10, borderRadius: 6 }}>⎘</button>
+                  <button onClick={() => regenPlat(key)} style={{ ...s.btnOutline, padding: "2px 7px", fontSize: 10, borderRadius: 6 }}>↺</button>
+                </div>
+              </div>
+              {renderPlatData(key, reel.copy?.[key])}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
-      <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 10 }}>Копирайтер напишет по структуре: описание / полезность / лид-магнит + CTA</div>
-      {loading && <div style={{ height: 3, background: COLORS.brd, borderRadius: 2, overflow: "hidden", marginBottom: 10 }}><div style={{ height: "100%", background: `linear-gradient(90deg,${COLORS.rose},#F472B6)`, animation: "lp 1.6s ease-in-out infinite" }} /></div>}
-      <div style={{ marginBottom: 10, display: "flex", gap: 7, flexWrap: "wrap" }}>
-        <button style={{ ...s.btnRose, ...s.btnSm }} onClick={genMain} disabled={loading}>✦ Написать тексты</button>
-        <button style={{ ...s.btnOutline, ...s.btnSm }} onClick={adaptAll} disabled={loading}>⇄ Все площадки</button>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+        <img src="/agents/tim.png" alt="Тим" style={{ width: 48, height: 48, objectFit: "contain", flexShrink: 0 }} />
+        <div style={{ fontSize: 18, fontWeight: 800 }}>Тим — тексты для площадок</div>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        {ordered.map(key => (
-          <div key={key} style={{ background: COLORS.white, border: `1.5px solid ${COLORS.brd}`, borderRadius: 10, padding: 11 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-              <div style={{ fontWeight: 700, fontSize: 12, color: COLORS.brown, display: "flex", alignItems: "center", gap: 4 }}>
-                {PLATFORMS[key]?.icon} {PLATFORMS[key]?.name}
-                {key === reel.platform && <Badge bg={COLORS.roseL} color={COLORS.rose}>основная</Badge>}
+      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center", marginBottom: 14 }}>
+        <Badge bg={COLORS.blueL} color={COLORS.blue}>{PLATFORMS[reel.platform]?.icon} {PLATFORMS[reel.platform]?.name} · {reel.format}</Badge>
+        {reel.hunt_stage ? <Badge bg={COLORS.roseL} color={COLORS.rose}>Ступень {reel.hunt_stage}</Badge> : null}
+      </div>
+
+      <div style={{ display: "flex", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
+        <div style={{ flex: "0.85 1 280px", minWidth: 280 }}>
+          <div style={s.card}>
+            {script && (
+              <div style={{ background: COLORS.roseP, border: `1.5px solid ${COLORS.brd}`, borderRadius: 9, padding: "9px 11px", fontSize: 11, color: COLORS.brown, lineHeight: 1.5 }}>
+                <div style={{ fontWeight: 700, marginBottom: 3, color: COLORS.rose }}>{handoffLabel}</div>
+                <div>{script.slice(0, 150)}{script.length > 150 ? "…" : ""}</div>
               </div>
-              <div style={{ display: "flex", gap: 4 }}>
-                <button onClick={() => copyToClipboard(key)} style={{ ...s.btnOutline, padding: "2px 7px", fontSize: 10, borderRadius: 6 }}>⎘</button>
-                <button onClick={() => regenPlat(key)} style={{ ...s.btnOutline, padding: "2px 7px", fontSize: 10, borderRadius: 6 }}>↺</button>
-              </div>
-            </div>
-            {renderPlatData(key, reel.copy?.[key])}
+            )}
+            <div style={{ fontSize: 11, color: COLORS.brownS, marginTop: 10 }}>Копирайтер напишет по структуре: описание / полезность / лид-магнит + CTA. Правки — кнопкой ↺ на карточке нужной площадки справа.</div>
           </div>
-        ))}
+        </div>
+
+        <div style={{ flex: "1.15 1 340px", minWidth: 280 }}>
+          {loading && <div style={{ height: 3, background: COLORS.brd, borderRadius: 2, overflow: "hidden", marginBottom: 10 }}><div style={{ height: "100%", background: `linear-gradient(90deg,${COLORS.rose},#F472B6)`, animation: "lp 1.6s ease-in-out infinite" }} /></div>}
+          <div style={{ marginBottom: 10, display: "flex", gap: 7, flexWrap: "wrap" }}>
+            <button style={{ ...s.btnRose, ...s.btnSm }} onClick={genMain} disabled={loading}>✦ Написать тексты</button>
+            <button style={{ ...s.btnOutline, ...s.btnSm }} onClick={adaptAll} disabled={loading}>⇄ Все площадки</button>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
+            {ordered.map(key => (
+              <div key={key} style={{ background: COLORS.white, border: `1.5px solid ${COLORS.brd}`, borderRadius: 10, padding: 11 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                  <div style={{ fontWeight: 700, fontSize: 12, color: COLORS.brown, display: "flex", alignItems: "center", gap: 4 }}>
+                    {PLATFORMS[key]?.icon} {PLATFORMS[key]?.name}
+                    {key === reel.platform && <Badge bg={COLORS.roseL} color={COLORS.rose}>основная</Badge>}
+                  </div>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    <button onClick={() => copyToClipboard(key)} style={{ ...s.btnOutline, padding: "2px 7px", fontSize: 10, borderRadius: 6 }}>⎘</button>
+                    <button onClick={() => regenPlat(key)} style={{ ...s.btnOutline, padding: "2px 7px", fontSize: 10, borderRadius: 6 }}>↺</button>
+                  </div>
+                </div>
+                {renderPlatData(key, reel.copy?.[key])}
+              </div>
+            ))}
+          </div>
+          {onAdvance && (
+            <button onClick={onAdvance} style={{ ...s.btnRose, width: "100%" }}>Готово — к заметкам →</button>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
 // ── NOTES STEP ──
-function NotesStep({ reel, onUpdate, onDeleteRequest }) {
+function NotesStep({ reel, onUpdate, onDeleteRequest, standalone, onBack }) {
+  // Old cards keep getting the status bar from CardModal's own shared
+  // chrome — only render it here when this screen has to stand on its own
+  // (isNewCard), per the ТЗ's "перенеси статус-бар на экран «Заметки»".
+  const statusIdx = STATUSES.findIndex(st => st.key === reel.status);
   return (
     <div>
+      {standalone && (
+        <>
+          <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 2 }}>Заметки</div>
+          <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 14 }}>{reel.topic || "Без темы"} · {PLATFORMS[reel.platform]?.icon} {PLATFORMS[reel.platform]?.name} · {reel.format}</div>
+          <div style={{ marginBottom: 14 }}>
+            <span style={s.label}>Статус</span>
+            <div style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
+              {STATUSES.map((st, i) => (
+                <span key={st.key}>
+                  {i > 0 && <span style={{ color: COLORS.brd, fontSize: 11, marginRight: 5 }}>→</span>}
+                  <button onClick={() => onUpdate({ status: st.key })} style={{ padding: "5px 10px", borderRadius: 7, border: `1.5px solid ${reel.status === st.key ? COLORS.rose : i < statusIdx ? COLORS.green : COLORS.brd}`, background: reel.status === st.key ? COLORS.rose : i < statusIdx ? COLORS.greenL : COLORS.cream, color: reel.status === st.key ? "#fff" : i < statusIdx ? COLORS.green : COLORS.brownS, fontSize: 11, fontWeight: reel.status === st.key ? 600 : 400, cursor: "pointer" }}>
+                    {i < statusIdx ? "✓ " : ""}{st.label}
+                  </button>
+                </span>
+              ))}
+            </div>
+          </div>
+          {onBack && <button onClick={onBack} style={{ ...s.btnOutline, ...s.btnSm, marginBottom: 14 }}>← Назад к Тиму</button>}
+        </>
+      )}
       <div style={{ marginBottom: 12 }}>
         <span style={s.label}>Заметки со съёмки и монтажа</span>
         <textarea style={{ ...s.field, minHeight: 70 }} rows={3} value={reel.notes || ""} onChange={e => onUpdate({ notes: e.target.value })} placeholder="Что изменилось при съёмке — агент учтёт это в текстах..." />
