@@ -9,6 +9,7 @@ import { buildCoreInstructions as carouselCore } from "./ai/prompts/carousel.js"
 import { buildCoreInstructions as copywriterCore, buildAllPlatformsCoreInstructions as copywriterAllPlatformsCore, needsFullScript as copyNeedsFullScript } from "./ai/prompts/copywriter.js";
 import { buildPlanCoreInstructions as miaPlanCore, buildRegenItemCoreInstructions as miaRegenItemCore, buildIdeaCoreInstructions as miaIdeaCore, buildFormatIdeaCoreInstructions as miaFormatIdeaCore } from "./ai/prompts/mia.js";
 import { buildCoreInstructions as competitorAnalysisCore } from "./ai/prompts/competitorAnalysis.js";
+import { buildCoreInstructions as leoCore } from "./ai/prompts/leo.js";
 
 // ── window.storage shim (Claude.ai artifact API) — falls back to localStorage outside the sandbox ──
 if (typeof window !== "undefined" && !window.storage) {
@@ -316,6 +317,7 @@ function makeReel({ platform, format, hunt = 0, topic = "" }) {
     strategy_card: null,
     script_strategy_card: null,
     plan_anchor: null, plan_day: null, content_goal: "", fixed_decisions: [],
+    reveal_text: "", reveal_chat: [], selected_platforms: [],
   };
 }
 
@@ -1916,6 +1918,10 @@ function CardModal({ reel, profile, reels, onUpdate, onDelete }) {
   const lead = reel.lead_magnet_idx != null ? profile.leads?.[reel.lead_magnet_idx] : null;
 
   const statusIdx = STATUSES.findIndex(s => s.key === reel.status);
+  // Cards created before this PR don't have `reveal_text` at all (old
+  // localStorage/window.storage shape predates the field) — those keep
+  // opening on IdeaStep as before; only new cards get LeoStep.
+  const isNewCard = reel.reveal_text !== undefined;
 
   return (
     <div>
@@ -1944,12 +1950,16 @@ function CardModal({ reel, profile, reels, onUpdate, onDelete }) {
 
       {/* STEP TABS */}
       <div style={{ display: "flex", border: `1.5px solid ${COLORS.brd}`, borderRadius: 9, overflow: "hidden", marginBottom: 16 }}>
-        {["1 · Идея", reel.format === "Карусель" ? "2 · Слайды" : "2 · Сценарий", "3 · Тексты", "4 · Заметки"].map((t, i) => (
+        {[isNewCard ? "1 · Лео" : "1 · Идея", reel.format === "Карусель" ? "2 · Слайды" : "2 · Сценарий", "3 · Тексты", "4 · Заметки"].map((t, i) => (
           <button key={i} onClick={() => setStep(i)} style={{ flex: 1, padding: "7px 4px", border: "none", borderRight: i < 3 ? `1px solid ${COLORS.brd}` : "none", background: step === i ? COLORS.rose : (i === 1 && reel.script_versions?.length) || (i === 2 && reel.copy && Object.keys(reel.copy).length) ? COLORS.greenL : COLORS.cream, color: step === i ? "#fff" : (i === 1 && reel.script_versions?.length) || (i === 2 && reel.copy && Object.keys(reel.copy).length) ? COLORS.green : COLORS.brownS, fontSize: 10, fontWeight: 700, cursor: "pointer", textAlign: "center" }}>{t}</button>
         ))}
       </div>
 
-      {step === 0 && <IdeaStep reel={reel} profile={profile} reels={reels} onUpdate={onUpdate} onAdvance={() => setStep(1)} />}
+      {step === 0 && (
+        isNewCard
+          ? <LeoStep reel={reel} profile={profile} onUpdate={onUpdate} onAdvance={(target) => setStep(target)} />
+          : <IdeaStep reel={reel} profile={profile} reels={reels} onUpdate={onUpdate} onAdvance={() => setStep(1)} />
+      )}
       {step === 1 && (
         reel.format === "Карусель"
           ? <CarouselStep reel={reel} profile={profile} onUpdate={onUpdate} onAdvance={() => setStep(2)} />
@@ -2139,6 +2149,172 @@ function IdeaStep({ reel, profile, reels, onUpdate, onAdvance }) {
   );
 }
 
+// ── LEO STEP (раскрытие темы — replaces IdeaStep as the entry point for
+// newly created cards; IdeaStep itself stays in the codebase, unused, in
+// case of rollback) ──
+function LeoStep({ reel, profile, onUpdate, onAdvance }) {
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [textDraft, setTextDraft] = useState(reel.reveal_text || "");
+  const chatRef = useRef(null);
+  const autoGenRef = useRef(false);
+
+  useEffect(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight; }, [reel.reveal_chat]);
+  useEffect(() => { setTextDraft(reel.reveal_text || ""); }, [reel.reveal_text]);
+
+  const buildPacket = () => {
+    const lead = reel.lead_magnet_idx != null ? profile.leads?.[reel.lead_magnet_idx] : null;
+    const packet = createContextPacket({
+      agent: "leo",
+      profile: {
+        name: profile.name,
+        audience: fieldContext(profile, "ca"),
+        products: fieldContext(profile, "prod"),
+        toneOfVoice: fieldContext(profile, "tov"),
+        manualMemory: fieldContext(profile, "memory"),
+        learnedMemory: profile.learnedMemory || [],
+      },
+      content: {
+        topic: reel.topic,
+        planAnchor: reel.plan_anchor || "",
+        huntStage: reel.hunt_stage,
+        huntStageHint: reel.hunt_stage ? HUNT_HINTS[reel.hunt_stage] : "",
+        selectedLead: lead ? `${lead.name} (${lead.link})` : "",
+      },
+      materials: profile.materials,
+      conversation: {
+        recentMessages: reel.reveal_chat || [],
+        latestUserEdit: reel.reveal_text ? `Текущий текст (учитывай ручные правки пользователя):\n${reel.reveal_text}` : "",
+      },
+    });
+    const coreInstructions = leoCore();
+    return renderContextPacket(packet, { coreInstructions, stage: "leo", requiresMemory: true });
+  };
+
+  const send = async (msg) => {
+    if (!msg.trim()) return;
+    setInput("");
+    setLoading(true);
+    const { system } = buildPacket();
+    const newChat = [...(reel.reveal_chat || []), { role: "user", content: msg }];
+    onUpdate({ reveal_chat: newChat });
+    try {
+      const messages = newChat.slice(-6).map(m => ({ role: m.role, content: m.content }));
+      const reply = await callAPI(messages, system, 2000, false, "leo");
+      onUpdate({ reveal_chat: [...newChat, { role: "assistant", content: reply }], reveal_text: reply });
+    } catch (e) {
+      onUpdate({ reveal_chat: [...newChat, { role: "assistant", content: "Ошибка: " + e.message }] });
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    if (autoGenRef.current) return;
+    if (reel.topic?.trim() && !reel.reveal_text) {
+      autoGenRef.current = true;
+      send("Раскрой эту тему в полноценный текст.");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const saveTextEdit = () => {
+    if (textDraft === reel.reveal_text) return;
+    onUpdate({ reveal_text: textDraft });
+  };
+
+  // One reel is still one platform/format (see ТЗ) — checkboxes here are a
+  // forward-looking UI for multi-platform selection, but only the first
+  // checked entry actually drives routing below.
+  useEffect(() => {
+    if (!(reel.selected_platforms || []).length && reel.platform && reel.format) {
+      onUpdate({ selected_platforms: [{ key: reel.platform, format: reel.format }] });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const togglePlatformFormat = (key, format) => {
+    const current = reel.selected_platforms || [];
+    const exists = current.some(x => x.key === key && x.format === format);
+    onUpdate({ selected_platforms: exists ? current.filter(x => !(x.key === key && x.format === format)) : [...current, { key, format }] });
+  };
+
+  const destinationFor = (format) => VIDEO_FORMATS.includes(format) ? "Кире" : format === "Карусель" ? "Асе" : "Тиму";
+
+  const submit = () => {
+    const chosen = (reel.selected_platforms && reel.selected_platforms[0]) || { key: reel.platform, format: reel.format };
+    const updates = {};
+    if (chosen.key !== reel.platform) updates.platform = chosen.key;
+    if (chosen.format !== reel.format) updates.format = chosen.format;
+    if (Object.keys(updates).length) onUpdate(updates);
+    const isVideo = VIDEO_FORMATS.includes(chosen.format);
+    const isCarousel = chosen.format === "Карусель";
+    onAdvance(isVideo || isCarousel ? 1 : 2);
+  };
+
+  return (
+    <div style={{ display: "flex", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
+      <div style={{ flex: "0.85 1 280px", minWidth: 280 }}>
+        <div style={{ ...s.card, display: "flex", flexDirection: "column", height: 420 }}>
+          <div style={{ background: COLORS.roseP, border: `1.5px solid ${COLORS.brd}`, borderRadius: 9, padding: "9px 11px", marginBottom: 8, fontSize: 11, color: COLORS.brown, lineHeight: 1.5, flexShrink: 0 }}>
+            <div style={{ fontWeight: 700, marginBottom: 3, color: COLORS.rose }}>От Мии</div>
+            {reel.topic && <div><strong>Тема:</strong> {reel.topic}</div>}
+            {reel.plan_anchor && <div><strong>Опора:</strong> {reel.plan_anchor}</div>}
+            {reel.hunt_stage ? <div><strong>Ступень:</strong> {reel.hunt_stage} · {HUNT_HINTS[reel.hunt_stage]}</div> : null}
+          </div>
+          <div ref={chatRef} style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6, overflowY: "auto", marginBottom: 8 }}>
+            {(reel.reveal_chat || []).map((m, i) => <div key={i} style={s.chatMsg(m.role)}><MsgText text={m.content} /></div>)}
+            {loading && <div style={{ ...s.chatMsg("assistant"), opacity: .6, fontStyle: "italic" }}>Пишу...</div>}
+          </div>
+          <div style={{ display: "flex", gap: 6, alignItems: "flex-end" }}>
+            <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }} placeholder="Правка к тексту..." rows={1} style={{ ...s.field, flex: 1, minHeight: 38, maxHeight: 90 }} />
+            <button onClick={() => send(input)} disabled={loading} style={{ ...s.btnRose, width: 36, height: 36, padding: 0, flexShrink: 0, opacity: loading ? .4 : 1 }}>→</button>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ flex: "1.15 1 340px", minWidth: 280 }}>
+        <div style={s.card}>
+          <span style={s.label}>Текст от Лео</span>
+          <textarea value={textDraft} onChange={e => setTextDraft(e.target.value)} onBlur={saveTextEdit} style={{ ...s.field, minHeight: 220 }} rows={11} placeholder={loading ? "Пишу текст..." : ""} />
+          <button onClick={saveTextEdit} style={{ ...s.btnOutline, ...s.btnSm, marginTop: 6 }}>Сохранить правки</button>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
+            {["Живее", "Мягче про продукт", "Короче"].map(q => (
+              <button key={q} disabled={loading} onClick={() => send({
+                "Живее": "Сделай текст живее и динамичнее — короче предложения, меньше канцелярита.",
+                "Мягче про продукт": "Смягчи упоминания продукта — сейчас звучит слишком похоже на рекламу.",
+                "Короче": "Сократи текст — убери всё, без чего можно обойтись, не теряя смысл.",
+              }[q])} style={{ background: COLORS.cream, border: `1.5px solid ${COLORS.brd}`, borderRadius: 20, padding: "3px 9px", fontSize: 10, color: COLORS.brownS, cursor: "pointer", opacity: loading ? .5 : 1 }}>{q}</button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ ...s.card, marginTop: 14 }}>
+          <span style={s.label}>Куда отправить</span>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 6 }}>
+            {Object.entries(PLATFORMS).map(([key, p]) => (
+              <div key={key}>
+                <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 4 }}>{p.icon} {p.name}</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                  {p.formats.map(format => {
+                    const checked = (reel.selected_platforms || []).some(x => x.key === key && x.format === format);
+                    return (
+                      <label key={format} style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 8px", borderRadius: 20, border: `1.5px solid ${checked ? COLORS.rose : COLORS.brd}`, background: checked ? COLORS.roseP : COLORS.cream, cursor: "pointer", fontSize: 10 }}>
+                        <input type="checkbox" checked={checked} onChange={() => togglePlatformFormat(key, format)} style={{ margin: 0 }} />
+                        {format} → {destinationFor(format)}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+          <button onClick={submit} disabled={!reel.reveal_text} style={{ ...s.btnRose, width: "100%", marginTop: 12, opacity: reel.reveal_text ? 1 : .4 }}>Отправить агентам →</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── SCRIPT STEP ──
 function ScriptStep({ reel, profile, onUpdate, onAdvance }) {
   const [input, setInput] = useState("");
@@ -2156,7 +2332,7 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance }) {
 
   useEffect(() => {
     if (autoGenRef.current) return;
-    if (reel.agreed_angle && !(reel.script_versions || []).length && reel.topic?.trim() && (!isVideo || reel.shoot_format)) {
+    if ((reel.reveal_text || reel.agreed_angle) && !(reel.script_versions || []).length && reel.topic?.trim() && (!isVideo || reel.shoot_format)) {
       autoGenRef.current = true;
       generateFromIdea();
     }
@@ -2177,9 +2353,9 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance }) {
       : reel.shoot_format === "full_plan" ? "для каждого смыслового куска сценария (хук / было-плохо / перелом / стало-так / CTA) — что в кадре, ракурс и крупность, примерная локация и реквизит, текст на экране в этот момент"
       : "минимальными пометками, где сменить план/крупность для динамики (без покадрового разбора)"
     }.` : "";
-    const angleText = reel.strategy_card
+    const angleText = reel.reveal_text || (reel.strategy_card
       ? [reel.strategy_card.angle, reel.strategy_card.rationale, reel.strategy_card.funnelRole ? `Роль в воронке: ${reel.strategy_card.funnelRole}` : ""].filter(Boolean).join(". ")
-      : (reel.agreed_angle?.angle || "");
+      : (reel.agreed_angle?.angle || ""));
     const packet = createContextPacket({
       agent: "scriptwriter",
       profile: {
@@ -2423,7 +2599,7 @@ function CarouselStep({ reel, profile, onUpdate, onAdvance }) {
   // нужен доп. вопрос про формат съёмки, поэтому условие проще, чем в ScriptStep.
   useEffect(() => {
     if (autoGenRef.current) return;
-    if (reel.agreed_angle && !(reel.script_versions || []).length && reel.topic?.trim()) {
+    if ((reel.reveal_text || reel.agreed_angle) && !(reel.script_versions || []).length && reel.topic?.trim()) {
       autoGenRef.current = true;
       generateFromIdea();
     }
@@ -2433,9 +2609,9 @@ function CarouselStep({ reel, profile, onUpdate, onAdvance }) {
   const buildPacket = () => {
     const lead = reel.lead_magnet_idx != null ? profile.leads?.[reel.lead_magnet_idx] : null;
     const finalSlides = reel.selected_script >= 0 ? reel.script_versions?.[reel.selected_script] : "";
-    const angleText = reel.strategy_card
+    const angleText = reel.reveal_text || (reel.strategy_card
       ? [reel.strategy_card.angle, reel.strategy_card.rationale, reel.strategy_card.funnelRole ? `Роль в воронке: ${reel.strategy_card.funnelRole}` : ""].filter(Boolean).join(". ")
-      : (reel.agreed_angle?.angle || "");
+      : (reel.agreed_angle?.angle || ""));
     const packet = createContextPacket({
       agent: "carousel",
       profile: {
@@ -2642,14 +2818,19 @@ function CopyStep({ reel, profile, onUpdate }) {
   };
   const leadText = (lead) => lead ? `${lead.name} · ${lead.link}${lead.desc ? ` · ${lead.desc}` : ""}` : "";
 
-  const script = reel.selected_script >= 0 ? reel.script_versions?.[reel.selected_script] : reel.topic;
+  // When CopyStep is reached directly from Лео (non-video, non-carousel
+  // formats skip ScriptStep/CarouselStep entirely — see LeoStep.submit) —
+  // reveal_text is the actual draft to adapt, not just background context,
+  // so it has to feed the primary generation input here too, not only
+  // angleText() below.
+  const script = reel.selected_script >= 0 ? reel.script_versions?.[reel.selected_script] : (reel.reveal_text || reel.topic);
   const sourceIsVideo = VIDEO_FORMATS.includes(reel.format);
   const baseFmts = { ig: '{"caption":"...","cta":"..."}', yt: '{"title":"...","description":"...","tags":["..."]}', tg: '{"caption":"..."}', tt: '{"overlay":"...","caption":"..."}', th: '{"text":"...","link_comment":"..."}', vk: '{"caption":"..."}' };
   const scriptFmts = { tt: '{"script":"...","overlay":"...","caption":"..."}', yt: '{"script":"...","title":"...","description":"...","tags":["..."]}' };
 
-  const angleText = () => reel.strategy_card
+  const angleText = () => reel.reveal_text || (reel.strategy_card
     ? [reel.strategy_card.angle, reel.strategy_card.rationale, reel.strategy_card.funnelRole ? `Роль в воронке: ${reel.strategy_card.funnelRole}` : ""].filter(Boolean).join(". ")
-    : (reel.agreed_angle?.angle || "");
+    : (reel.agreed_angle?.angle || ""));
 
   const commonPacketArgs = (lead) => ({
     profile: {
