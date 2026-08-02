@@ -8,6 +8,7 @@ import { buildCoreInstructions as scriptwriterCore } from "./ai/prompts/scriptwr
 import { buildCoreInstructions as carouselCore } from "./ai/prompts/carousel.js";
 import { buildCoreInstructions as copywriterCore, buildAllPlatformsCoreInstructions as copywriterAllPlatformsCore, needsFullScript as copyNeedsFullScript } from "./ai/prompts/copywriter.js";
 import { buildPlanCoreInstructions as miaPlanCore, buildRegenItemCoreInstructions as miaRegenItemCore, buildIdeaCoreInstructions as miaIdeaCore, buildFormatIdeaCoreInstructions as miaFormatIdeaCore } from "./ai/prompts/mia.js";
+import { buildCoreInstructions as competitorAnalysisCore } from "./ai/prompts/competitorAnalysis.js";
 
 // ── window.storage shim (Claude.ai artifact API) — falls back to localStorage outside the sandbox ──
 if (typeof window !== "undefined" && !window.storage) {
@@ -130,6 +131,16 @@ async function callAPI(messages, system, maxTokens = 1000, enableWebSearch = fal
   const d = await r.json();
   if (!r.ok) throw new Error(d.error || "API ошибка");
   return d.text || "";
+}
+async function scrapeCompetitor(platform, handle) {
+  const r = await fetch("/api/scrape", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ platform, handle }),
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error || "Ошибка запроса");
+  return d.posts || [];
 }
 // Models sometimes wrap JSON in ```json fences despite being told not to —
 // strip those before any parse attempt rather than letting them break it.
@@ -287,7 +298,7 @@ function DocumentChip({ fileName, fileType, fileSize, onRemove }) {
   );
 }
 
-const EMPTY_PROFILE_FIELDS = { ca: "", prod: "", tov: "", memory: "", ca_files: [], prod_files: [], tov_files: [], memory_files: [], leads: [], materials: [], platInstr: { ...DEFAULT_PLAT_INSTR }, huntStage: null, profileType: "manual", contentPlan: null };
+const EMPTY_PROFILE_FIELDS = { ca: "", prod: "", tov: "", memory: "", ca_files: [], prod_files: [], tov_files: [], memory_files: [], leads: [], materials: [], platInstr: { ...DEFAULT_PLAT_INSTR }, huntStage: null, profileType: "manual", contentPlan: null, competitors: [], competitorsLastFetched: null };
 function makeProfile(data) {
   return { id: "p-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: "Новая ниша", ...EMPTY_PROFILE_FIELDS, ...data, platInstr: { ...DEFAULT_PLAT_INSTR, ...(data.platInstr || {}) } };
 }
@@ -1459,6 +1470,139 @@ function MiaNewsTab({ profile, onUpdateProfile, onWritePost }) {
   );
 }
 
+const COMPETITOR_PLATFORMS = {
+  instagram: { icon: "📸", name: "Instagram" },
+  tiktok: { icon: "🎵", name: "TikTok" },
+  youtube: { icon: "▶️", name: "YouTube" },
+};
+
+function MiaCompetitorsTab({ profile, onUpdateProfile }) {
+  // Old profiles predate this feature — read defensively.
+  const competitors = profile.competitors || [];
+  const [newPlatform, setNewPlatform] = useState("instagram");
+  const [newHandle, setNewHandle] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [warnings, setWarnings] = useState([]);
+  const [topics, setTopics] = useState([]);
+
+  const addCompetitor = () => {
+    if (!newHandle.trim()) return;
+    onUpdateProfile({ competitors: [...competitors, { platform: newPlatform, handle: newHandle.trim().replace(/^@/, "") }] });
+    setNewHandle("");
+  };
+
+  const removeCompetitor = (i) => onUpdateProfile({ competitors: competitors.filter((_, idx) => idx !== i) });
+
+  // Deliberately manual (button-triggered), not automatic on tab open —
+  // every call spends ScrapeCreators credits, and competitor content
+  // doesn't change minute to minute.
+  const analyze = async () => {
+    if (!competitors.length) return;
+    setLoading(true);
+    setError("");
+    setWarnings([]);
+    setTopics([]);
+    const fetched = [];
+    const newWarnings = [];
+    for (const c of competitors) {
+      try {
+        const posts = await scrapeCompetitor(c.platform, c.handle);
+        fetched.push({ ...c, posts });
+      } catch (e) {
+        newWarnings.push(`@${c.handle} (${COMPETITOR_PLATFORMS[c.platform]?.name}): ${e.message}`);
+      }
+    }
+    onUpdateProfile({ competitorsLastFetched: new Date().toISOString() });
+    setWarnings(newWarnings);
+    const withPosts = fetched.filter(c => c.posts.length);
+    if (!withPosts.length) {
+      setError(newWarnings.length ? "Не удалось получить данные ни по одному конкуренту." : "У конкурентов не нашлось постов для анализа.");
+      setLoading(false);
+      return;
+    }
+    const summary = withPosts.map(c =>
+      `@${c.handle} (${COMPETITOR_PLATFORMS[c.platform]?.name}):\n` +
+      c.posts.map((p, i) => `${i + 1}. "${p.title_or_caption || "(без подписи)"}" (❤ ${p.likes} · 💬 ${p.comments} · 👁 ${p.views})`).join("\n")
+    ).join("\n\n");
+    const packet = createContextPacket({ agent: "competitor_analysis", profile: buildMiaProfileFields(profile), materials: profile.materials });
+    const coreInstructions = competitorAnalysisCore();
+    const { system } = renderContextPacket(packet, { coreInstructions, stage: "idea", requiresMemory: true });
+    try {
+      const raw = await callAPI([{ role: "user", content: `Заголовки/подписи последних постов конкурентов:\n\n${summary}\n\nНайди повторяющиеся темы/форматы/крючки и предложи 3-5 тем для контента пользователя.` }], system, 1600, false, "competitor_analysis");
+      if (!raw) throw new Error("Агент вернул пустой ответ.");
+      const parsed = raw.split(/(?=Вариант\s*\d+\s*:)/i).map(t => t.trim()).filter(Boolean);
+      setTopics(parsed.length ? parsed : [raw]);
+    } catch (e) {
+      setError(e.message || "Ошибка запроса");
+    }
+    setLoading(false);
+  };
+
+  const makeTopic = (text) => {
+    const topic = text.replace(/^Вариант\s*\d+\s*:\s*/i, "").trim();
+    const plan = profile.contentPlan;
+    const platform = plan?.platforms?.[0] || Object.keys(PLATFORMS)[0];
+    const newItem = { day: (plan?.items?.length || 0) + 1, platform, topic, stage: 2, anchor: "по паттерну конкурентов" };
+    if (plan) {
+      onUpdateProfile({ contentPlan: { ...plan, items: [...plan.items, newItem] } });
+    } else {
+      onUpdateProfile({ contentPlan: { platforms: [platform], items: [newItem], chat: [], generatedAt: new Date().toISOString() } });
+    }
+  };
+
+  return (
+    <div>
+      <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 10 }}>Добавь конкурентов, чтобы Мия нашла повторяющиеся темы и форматы в их контенте и предложила идеи под твой голос и продукт.</div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
+        {competitors.map((c, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, background: COLORS.white, border: `1.5px solid ${COLORS.brd}`, borderRadius: 9, padding: "7px 11px" }}>
+            <span>{COMPETITOR_PLATFORMS[c.platform]?.icon}</span>
+            <span style={{ fontSize: 12, fontWeight: 600 }}>@{c.handle}</span>
+            <span style={{ fontSize: 10, color: COLORS.brownS }}>{COMPETITOR_PLATFORMS[c.platform]?.name}</span>
+            <button onClick={() => removeCompetitor(i)} disabled={loading} title="Удалить конкурента" style={{ marginLeft: "auto", ...s.btnOutline, padding: "4px 8px", fontSize: 11, borderRadius: 6, color: "#DC2626", borderColor: "#FECACA" }}>✕</button>
+          </div>
+        ))}
+        {!competitors.length && <div style={{ fontSize: 11, color: COLORS.brownS, fontStyle: "italic" }}>Пока не добавлено ни одного конкурента.</div>}
+      </div>
+
+      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginBottom: 14 }}>
+        <select value={newPlatform} onChange={e => setNewPlatform(e.target.value)} style={{ ...s.field, width: "auto", padding: "5px 9px", fontSize: 11 }}>
+          {Object.entries(COMPETITOR_PLATFORMS).map(([key, m]) => <option key={key} value={key}>{m.icon} {m.name}</option>)}
+        </select>
+        <input value={newHandle} onChange={e => setNewHandle(e.target.value)} onKeyDown={e => { if (e.key === "Enter") addCompetitor(); }} placeholder="@handle" style={{ ...s.field, width: 160 }} />
+        <button onClick={addCompetitor} disabled={!newHandle.trim()} style={{ ...s.btnOutline, ...s.btnSm, opacity: newHandle.trim() ? 1 : .5 }}>+ Добавить конкурента</button>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <button onClick={analyze} disabled={!competitors.length || loading} style={{ ...s.btnRose, opacity: (!competitors.length || loading) ? .4 : 1 }}>{loading ? "Анализирую..." : "🔍 Обновить и проанализировать"}</button>
+        {profile.competitorsLastFetched && <span style={{ fontSize: 10, color: COLORS.brownS }}>Обновлено: {new Date(profile.competitorsLastFetched).toLocaleString("ru")}</span>}
+      </div>
+
+      {loading && <div style={{ height: 3, background: COLORS.brd, borderRadius: 2, overflow: "hidden", margin: "12px 0" }}><div style={{ height: "100%", background: `linear-gradient(90deg,${COLORS.rose},#F472B6)`, animation: "lp 1.6s ease-in-out infinite" }} /></div>}
+
+      {warnings.length > 0 && (
+        <div style={{ marginTop: 10, fontSize: 10, color: COLORS.amber }}>
+          {warnings.map((w, i) => <div key={i}>⚠ {w}</div>)}
+        </div>
+      )}
+      {error && <div style={{ marginTop: 10, fontSize: 11, color: "#DC2626" }}>{error}</div>}
+
+      {topics.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 14 }}>
+          {topics.map((t, i) => (
+            <div key={i} style={{ background: COLORS.white, border: `1.5px solid ${COLORS.brd}`, borderRadius: 9, padding: "9px 11px", display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ fontSize: 12, lineHeight: 1.5 }}><MsgText text={t} /></div>
+              <button onClick={() => makeTopic(t)} style={{ ...s.btnOutline, ...s.btnSm, alignSelf: "flex-start" }}>+ Сделать темой</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MiaScreen({ profile, onUpdateProfile, onWritePost }) {
   const [subTab, setSubTab] = useState("plan");
   const SUB_TABS = [["idea", "Идея"], ["news", "Новости"], ["plan", "План"], ["competitors", "Конкуренты"]];
@@ -1472,11 +1616,10 @@ function MiaScreen({ profile, onUpdateProfile, onWritePost }) {
         {SUB_TABS.map(([key, label], i) => (
           <button
             key={key}
-            onClick={() => key !== "competitors" && setSubTab(key)}
-            disabled={key === "competitors"}
-            style={{ flex: 1, padding: "7px 4px", border: "none", borderRight: i < SUB_TABS.length - 1 ? `1px solid ${COLORS.brd}` : "none", background: subTab === key ? COLORS.rose : COLORS.cream, color: subTab === key ? "#fff" : key === "competitors" ? COLORS.brd : COLORS.brownS, fontSize: 10, fontWeight: 700, cursor: key === "competitors" ? "default" : "pointer", textAlign: "center" }}
+            onClick={() => setSubTab(key)}
+            style={{ flex: 1, padding: "7px 4px", border: "none", borderRight: i < SUB_TABS.length - 1 ? `1px solid ${COLORS.brd}` : "none", background: subTab === key ? COLORS.rose : COLORS.cream, color: subTab === key ? "#fff" : COLORS.brownS, fontSize: 10, fontWeight: 700, cursor: "pointer", textAlign: "center" }}
           >
-            {label}{key === "competitors" ? " · скоро" : ""}
+            {label}
           </button>
         ))}
       </div>
@@ -1484,7 +1627,7 @@ function MiaScreen({ profile, onUpdateProfile, onWritePost }) {
       {subTab === "plan" && <MiaPlanTab profile={profile} onUpdateProfile={onUpdateProfile} onWritePost={onWritePost} />}
       {subTab === "news" && <MiaNewsTab profile={profile} onUpdateProfile={onUpdateProfile} onWritePost={onWritePost} />}
       {subTab === "idea" && <MiaIdeaTab profile={profile} onUpdateProfile={onUpdateProfile} onWritePost={onWritePost} />}
-      {subTab === "competitors" && <div style={{ fontSize: 12, color: COLORS.brownS, textAlign: "center", padding: "30px 0" }}>Скоро — анализ конкурентов.</div>}
+      {subTab === "competitors" && <MiaCompetitorsTab profile={profile} onUpdateProfile={onUpdateProfile} />}
     </div>
   );
 }
