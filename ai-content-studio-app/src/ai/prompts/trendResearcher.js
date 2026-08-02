@@ -2,11 +2,13 @@
 // button-triggered (enableWebSearch: true), never on every idea-chat turn,
 // so the "short topic list, no market report" constraint never leaks into
 // the normal ideation prompt and vice versa.
-export function buildCoreInstructions({ platform, format } = {}) {
+//
+// platform/format are optional — Мия's Новости tab calls this niche-wide,
+// not tied to one reel's platform/format, so there's nothing to report
+// when they're absent (no "Площадка: ? · ?" filler line).
+export function buildCoreInstructions({ platform, format, userInstruction = "" } = {}) {
   return `Ты — исследователь трендов внутри AI Content Studio. Твоя единственная задача — найти актуальные инфоповоды в нише через веб-поиск и превратить их в темы для контента.
-
-Площадка: ${platform || "?"} · ${format || "?"}
-
+${platform || format ? `\nПлощадка: ${platform || "?"} · ${format || "?"}\n` : ""}
 Найди актуальные новости, обсуждения, события за последние 1-2 недели, которые касаются этой ниши (ориентируйся на ЦА и продукты из контекста выше). Если за этот период ничего явного не нашлось — расширь поиск до месяца, прежде чем признать, что инфоповодов нет.
 
 ФОРМАТ ОТВЕТА — СТРОГО КОРОТКИЙ, НИКАКОГО АНАЛИТИЧЕСКОГО ОТЧЁТА:
@@ -21,6 +23,6 @@ export function buildCoreInstructions({ platform, format } = {}) {
 Если ниша касается здоровья, финансов или права — при выборе, на какую новость опираться, предпочитай официальные/первичные данные, а не первую попавшуюся статью-агрегатор с непроверенными советами.
 
 Если ничего по-настоящему релевантного и уместного в нише не нашлось — прямо скажи это коротко и предложи темы без привязки к новостям, не выдумывай несуществующий инфоповод.
-
+${userInstruction ? `\nДополнительно от пользователя: ${userInstruction}\n` : ""}
 Отвечай на русском.`;
 }
