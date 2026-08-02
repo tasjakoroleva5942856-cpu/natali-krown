@@ -6,6 +6,7 @@ import { buildCoreInstructions as trendResearcherCore } from "./ai/prompts/trend
 import { buildCoreInstructions as scriptwriterCore } from "./ai/prompts/scriptwriter.js";
 import { buildCoreInstructions as carouselCore } from "./ai/prompts/carousel.js";
 import { buildCoreInstructions as copywriterCore, buildAllPlatformsCoreInstructions as copywriterAllPlatformsCore, needsFullScript as copyNeedsFullScript } from "./ai/prompts/copywriter.js";
+import { buildPlanCoreInstructions as miaPlanCore, buildRegenItemCoreInstructions as miaRegenItemCore, buildIdeaCoreInstructions as miaIdeaCore, buildFormatIdeaCoreInstructions as miaFormatIdeaCore } from "./ai/prompts/mia.js";
 
 // ── window.storage shim (Claude.ai artifact API) — falls back to localStorage outside the sandbox ──
 if (typeof window !== "undefined" && !window.storage) {
@@ -189,20 +190,6 @@ function buildMaterialsCtx(materials, useKey, perMaterialMax = 2000, totalBudget
   }
   return ctx;
 }
-// Full, untruncated niche document — used only for the once-a-month plan
-// call. Per-post generation elsewhere truncates profile fields to keep
-// frequent calls cheap; this call is rare enough that depth matters more.
-function buildFullNicheDocument(profile) {
-  let doc = "";
-  const ca = fieldContext(profile, "ca"), prod = fieldContext(profile, "prod"), tov = fieldContext(profile, "tov"), memory = fieldContext(profile, "memory");
-  if (ca) doc += `=== ЦЕЛЕВАЯ АУДИТОРИЯ ===\n${ca}\n\n`;
-  if (prod) doc += `=== ПРОДУКТЫ И ВОРОНКА ===\n${prod}\n\n`;
-  if (tov) doc += `=== ТОН И СТИЛЬ ===\n${tov}\n\n`;
-  if (memory) doc += `=== ПАТТЕРНЫ ===\n${memory}\n\n`;
-  (profile.materials || []).forEach(m => { doc += `=== ${(m.name || "").toUpperCase()} ===\n${m.text}\n\n`; });
-  return doc.trim();
-}
-
 // ── LIGHTWEIGHT MARKDOWN (bold / italic / quotes / --- dividers) ──
 function renderInline(text, keyPrefix) {
   const parts = [];
@@ -442,7 +429,7 @@ export default function App() {
         <div style={{ display: "flex", gap: 2 }}>
           {["board", "plan", "team", "profile"].map((t, i) => (
             <button key={t} onClick={() => setTab(t)} style={{ padding: "5px 12px", borderRadius: 7, fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", fontFamily: "inherit", background: tab === t ? COLORS.rose : "none", color: tab === t ? "#fff" : COLORS.brownS }}>
-              {{ board: "◫ Доска", plan: "📅 План", team: "🤖 Команда", profile: "⚙ Профиль" }[t]}
+              {{ board: "◫ Доска", plan: "🧑‍💼 Мия", team: "🤖 Команда", profile: "⚙ Профиль" }[t]}
             </button>
           ))}
         </div>
@@ -557,9 +544,9 @@ export default function App() {
         </div>
       )}
 
-      {/* PLAN */}
+      {/* MIA (marketer — plan/news/idea/competitors) */}
       {tab === "plan" && (
-        <PlanTab
+        <MiaScreen
           key={profile.id}
           profile={profile}
           onUpdateProfile={(p) => updateActiveProfile(p)}
@@ -1031,62 +1018,6 @@ function UploadPlanModal({ onClose, onParsed }) {
   );
 }
 
-function planDepthRules(typeLabel) {
-  return `ПРАВИЛА ГЛУБИНЫ ПРОРАБОТКИ — САМОЕ ВАЖНОЕ:
-
-Если тип профиля — ДОКУМЕНТ_ВОРКШОПА:
-- В документе могут быть конкретные формулировки боли, возражения, фразы, которыми аудитория описывает свою проблему, реальные примеры/ситуации.
-- Каждая тема ДОЛЖНА опираться на конкретный, узнаваемый элемент из документа — не общую фразу вроде "боится не успеть", а именно то, что реально написано (например: "боится, что подписчики решат, будто она непрофессионал из-за ошибок в постах" — тема должна цеплять именно это, а не абстрактную "неуверенность").
-- Для каждой темы заполни поле "опора" — короткая цитата или прямая отсылка к конкретному месту документа, на которое опирается эта тема.
-- Если для конкретной темы в документе НЕТ подходящей конкретики — НЕ ВЫДУМЫВАЙ. Укажи "опора": "общая логика этапа" и сформулируй тему нейтральнее, без ложной конкретики.
-
-Если тип профиля — ИНТЕРВЬЮ:
-- Данных мало (несколько строк: ниша, аудитория, боль, тон, оффер). Работай строго с тем, что есть — не придумывай цитаты, ситуации или детали, которых нет во входных данных.
-- Поле "опора" в этом случае — "по краткому брифу", без цитат.`;
-}
-
-function buildPlanSystem(typeLabel, fullDoc, platformNames) {
-  return `Ты — контент-стратег, создающий план публикаций на 30 дней на основе методики "Лестница Ханта" (5 этапов осознанности: 1 — не знает о проблеме, 2 — знает о проблеме, не ищет решение, 3 — ищет и сравнивает решения, 4 — выбирает конкретный продукт, 5 — уже клиент/адвокат).
-
-ВХОДНЫЕ ДАННЫЕ:
-Тип профиля: ${typeLabel}
-Бриф/документ ниши: ${fullDoc || "(пусто)"}
-ПЛОЩАДКИ: используй ТОЛЬКО следующие, и никакие другие ни при каких условиях: ${platformNames}.
-Даже если тема органично подошла бы другой площадке — не используй её, выбери из списка выше. Значение "platform" в каждом объекте JSON должно быть ТОЛЬКО одним из этих названий, дословно.
-
-${planDepthRules(typeLabel)}
-
-ОБЩИЕ ПРАВИЛА:
-- Каждая тема — короткая формулировка (не сам пост, только суть, до 12 слов).
-- Распредели темы по всем указанным платформам примерно равномерно.
-- Распредели темы по этапам Ханта осмысленным циклом: не более 2 дней подряд один этап; за месяц — все 5 этапов несколько раз; ближе к середине-концу месяца можно немного чаще давать этапы 3-4.
-- Не повторяй тему дважды за 30 дней.
-- Избегай общих маркетинговых клише ("успех начинается с малого", "здоровье — это важно") — если тема не может быть конкретной из-за нехватки данных, пусть будет просто нейтральной, но не банальной.
-
-ФОРМАТ ОТВЕТА — СТРОГО:
-Верни ТОЛЬКО валидный JSON-массив из 30 объектов. Каждый объект — РОВНО эти поля, никаких других, ничего не добавляй сверху (не добавляй segment, angle, cta, hunt_stage, stage_name, format или любые другие поля, даже если они кажутся полезными для этой ниши):
-[{"day": 1, "platform": "Telegram", "topic": "...", "stage": 2, "опора": "..."}, {"day": 2, "platform": "...", "topic": "...", "stage": 1, "опора": "..."}, ...]
-Ответ должен начинаться с символа [ и заканчиваться символом ] — без \`\`\`json, без пояснений до или после массива.`;
-}
-
-function buildRegenItemSystem(typeLabel, fullDoc, platformName, stage, existingTopics) {
-  return `Ты — контент-стратег, работающий с планом публикаций на основе методики "Лестница Ханта" (5 этапов осознанности: 1 — не знает о проблеме, 2 — знает о проблеме, не ищет решение, 3 — ищет и сравнивает решения, 4 — выбирает конкретный продукт, 5 — уже клиент/адвокат).
-
-ВХОДНЫЕ ДАННЫЕ:
-Тип профиля: ${typeLabel}
-Бриф/документ ниши: ${fullDoc || "(пусто)"}
-Площадка: ${platformName}
-Этап Ханта: ${stage}
-Уже есть в плане (не повторяться): ${existingTopics.join("; ") || "(пока пусто)"}
-
-${planDepthRules(typeLabel)}
-
-ЗАДАЧА: придумай ОДНУ новую тему взамен текущей, для указанных площадки и этапа Ханта. До 12 слов, без маркетинговых клише, не повторяя темы из списка выше.
-
-ФОРМАТ ОТВЕТА: только валидный JSON-объект, без markdown-разметки и пояснений:
-{"topic": "...", "опора": "..."}`;
-}
-
 function PlanRow({ item, onChange, onWritePost, onDelete, onRegenerate, regenerating }) {
   return (
     <div style={{ background: COLORS.white, border: `1.5px solid ${COLORS.brd}`, borderRadius: 9, padding: "9px 11px", display: "flex", flexDirection: "column", gap: 6, opacity: regenerating ? .6 : 1 }}>
@@ -1110,7 +1041,40 @@ function PlanRow({ item, onChange, onWritePost, onDelete, onRegenerate, regenera
   );
 }
 
-function PlanTab({ profile, onUpdateProfile, onWritePost }) {
+// Shared profile-field extraction for every Мия call — kept in one place
+// so ЦА/Продукты/TOV/Память are pulled the same way across План/regen/
+// revise-chat/Идея.
+function buildMiaProfileFields(profile) {
+  return {
+    name: profile.name,
+    audience: fieldContext(profile, "ca"),
+    products: fieldContext(profile, "prod"),
+    toneOfVoice: fieldContext(profile, "tov"),
+    manualMemory: fieldContext(profile, "memory"),
+    learnedMemory: profile.learnedMemory || [],
+  };
+}
+
+// Normalizes raw model rows (or an uploaded plan) into the plan's item
+// shape, snapping any platform the model invented back onto one of the
+// actually-selected platforms. Shared by generation and chat-driven
+// whole-plan revision so both stay consistent.
+function mapPlanRows(rows, selectedPlatforms) {
+  const nameToKey = Object.fromEntries(Object.entries(PLATFORMS).map(([key, p]) => [p.name, key]));
+  return rows.slice(0, 30).map((it, i) => {
+    const mapped = nameToKey[it.platform];
+    const platform = (mapped && selectedPlatforms.includes(mapped)) ? mapped : selectedPlatforms[i % selectedPlatforms.length];
+    return {
+      day: Number(it.day) || i + 1,
+      platform,
+      topic: it.topic || "",
+      stage: Math.min(5, Math.max(1, Number(it.stage) || 1)),
+      anchor: it["опора"] || it.opora || it.anchor || "",
+    };
+  });
+}
+
+function MiaPlanTab({ profile, onUpdateProfile, onWritePost }) {
   const plan = profile.contentPlan;
   const [selectedPlatforms, setSelectedPlatforms] = useState(plan?.platforms || []);
   const [loading, setLoading] = useState(false);
@@ -1118,6 +1082,14 @@ function PlanTab({ profile, onUpdateProfile, onWritePost }) {
   const [rawReply, setRawReply] = useState("");
   const [showConfirmRegen, setShowConfirmRegen] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
+  const [regenIndex, setRegenIndex] = useState(null);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const chatRef = useRef(null);
+  // Old profiles were generated before contentPlan.chat existed.
+  const chat = plan?.chat || [];
+
+  useEffect(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight; }, [chat]);
 
   const togglePlatform = (key) => setSelectedPlatforms(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
 
@@ -1132,7 +1104,7 @@ function PlanTab({ profile, onUpdateProfile, onWritePost }) {
     }));
     const platforms = [...new Set(items.map(it => it.platform))];
     setSelectedPlatforms(platforms);
-    onUpdateProfile({ contentPlan: { platforms, items, generatedAt: new Date().toISOString(), source: "upload" } });
+    onUpdateProfile({ contentPlan: { platforms, items, chat: [], generatedAt: new Date().toISOString(), source: "upload" } });
     setShowUpload(false);
   };
 
@@ -1142,27 +1114,24 @@ function PlanTab({ profile, onUpdateProfile, onWritePost }) {
     setError("");
     setRawReply("");
     const typeLabel = profile.profileType === "interview" ? "ИНТЕРВЬЮ" : "ДОКУМЕНТ_ВОРКШОПА";
-    const fullDoc = buildFullNicheDocument(profile);
     const platformNames = selectedPlatforms.map(k => PLATFORMS[k].name).join(", ");
-    const system = buildPlanSystem(typeLabel, fullDoc, platformNames);
+    // Materials tagged for the Идеолог (use.idea) are reused here as a
+    // temporary stand-in for "materials Мия should see" — the ТЗ named
+    // this key "use.ideologist", but that key doesn't exist anywhere in
+    // the materials data model (only idea/script/copy do); using a
+    // nonexistent key would just silently return zero materials, which
+    // defeats the ТЗ's own stated intent of reusing what's already
+    // flagged for ideation. Per-agent material tagging is its own future
+    // ТЗ — this is only a placeholder until then.
+    const packet = createContextPacket({ agent: "mia", profile: buildMiaProfileFields(profile), materials: profile.materials });
+    const coreInstructions = miaPlanCore({ typeLabel, platformNames });
+    const { system } = renderContextPacket(packet, { coreInstructions, stage: "idea", requiresMemory: true });
     let raw = "";
     try {
-      raw = await callAPI([{ role: "user", content: "Сформируй план на 30 дней. Ответь только JSON-массивом, без текста и markdown." }], system, 10000);
+      raw = await callAPI([{ role: "user", content: "Сформируй план на 30 дней. Ответь только JSON-массивом, без текста и markdown." }], system, 10000, false, "mia");
       if (!raw) throw new Error("Агент вернул пустой ответ. Попробуй ещё раз.");
-      const rows = parseJSONArray(raw);
-      const nameToKey = Object.fromEntries(Object.entries(PLATFORMS).map(([key, p]) => [p.name, key]));
-      const items = rows.slice(0, 30).map((it, i) => {
-        const mapped = nameToKey[it.platform];
-        const platform = (mapped && selectedPlatforms.includes(mapped)) ? mapped : selectedPlatforms[i % selectedPlatforms.length];
-        return {
-          day: Number(it.day) || i + 1,
-          platform,
-          topic: it.topic || "",
-          stage: Math.min(5, Math.max(1, Number(it.stage) || 1)),
-          anchor: it["опора"] || it.opora || it.anchor || "",
-        };
-      });
-      onUpdateProfile({ contentPlan: { platforms: selectedPlatforms, items, generatedAt: new Date().toISOString() } });
+      const items = mapPlanRows(parseJSONArray(raw), selectedPlatforms);
+      onUpdateProfile({ contentPlan: { platforms: selectedPlatforms, items, chat: [], generatedAt: new Date().toISOString() } });
     } catch (e) {
       setError(e.message || "Ошибка запроса");
       setRawReply(raw);
@@ -1180,18 +1149,17 @@ function PlanTab({ profile, onUpdateProfile, onWritePost }) {
     onUpdateProfile({ contentPlan: { ...plan, items } });
   };
 
-  const [regenIndex, setRegenIndex] = useState(null);
-
   const regenPlanItem = async (i) => {
     setRegenIndex(i);
     const item = plan.items[i];
     const typeLabel = profile.profileType === "interview" ? "ИНТЕРВЬЮ" : "ДОКУМЕНТ_ВОРКШОПА";
-    const fullDoc = buildFullNicheDocument(profile);
     const platformName = PLATFORMS[item.platform]?.name || item.platform;
     const existingTopics = plan.items.filter((_, idx) => idx !== i).map(it => it.topic).filter(Boolean);
-    const system = buildRegenItemSystem(typeLabel, fullDoc, platformName, item.stage, existingTopics);
+    const packet = createContextPacket({ agent: "mia", profile: buildMiaProfileFields(profile), materials: profile.materials });
+    const coreInstructions = miaRegenItemCore({ typeLabel, platformName, stage: item.stage, existingTopics });
+    const { system } = renderContextPacket(packet, { coreInstructions, stage: "idea", requiresMemory: true });
     try {
-      const raw = await callAPI([{ role: "user", content: "Предложи новую тему взамен текущей." }], system, 500);
+      const raw = await callAPI([{ role: "user", content: "Предложи новую тему взамен текущей." }], system, 500, false, "mia");
       if (!raw) throw new Error("Агент вернул пустой ответ.");
       const parsed = parseJSON(raw);
       updatePlanItem(i, { topic: parsed.topic || item.topic, anchor: parsed["опора"] || parsed.opora || parsed.anchor || item.anchor });
@@ -1201,68 +1169,236 @@ function PlanTab({ profile, onUpdateProfile, onWritePost }) {
     setRegenIndex(null);
   };
 
-  return (
-    <div style={s.panel}>
-      <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 2 }}>Контент-план на месяц</div>
-      <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 14 }}>Темы на месяц вперёд для ниши «{profile.name}», с учётом ступеней Лестницы Ханта</div>
+  const sendRevision = async (msg) => {
+    if (!msg.trim() || !plan) return;
+    setChatInput("");
+    setChatLoading(true);
+    const typeLabel = profile.profileType === "interview" ? "ИНТЕРВЬЮ" : "ДОКУМЕНТ_ВОРКШОПА";
+    const platforms = plan.platforms?.length ? plan.platforms : selectedPlatforms;
+    const platformNames = platforms.map(k => PLATFORMS[k]?.name).filter(Boolean).join(", ");
+    const packet = createContextPacket({ agent: "mia", profile: buildMiaProfileFields(profile), materials: profile.materials });
+    const coreInstructions = miaPlanCore({ typeLabel, platformNames });
+    const { system } = renderContextPacket(packet, { coreInstructions, stage: "idea", requiresMemory: true });
+    const planSummary = plan.items.map((it, i) => `${i + 1}. День ${it.day} · ${PLATFORMS[it.platform]?.name || it.platform} · Ступень ${it.stage}: ${it.topic}`).join("\n");
+    const newChat = [...chat, { role: "user", content: msg }];
+    onUpdateProfile({ contentPlan: { ...plan, chat: newChat } });
+    try {
+      const raw = await callAPI([{ role: "user", content: `Текущий план:\n${planSummary}\n\nПравка от пользователя: ${msg}\n\nПересобери план целиком с учётом этой правки — не меняй темы, которых правка не касается. Ответь только JSON-массивом из ${plan.items.length} объектов, тем же форматом, без текста и markdown.` }], system, 10000, false, "mia");
+      const items = mapPlanRows(parseJSONArray(raw), platforms);
+      onUpdateProfile({ contentPlan: { ...plan, items, chat: [...newChat, { role: "assistant", content: "Обновила план с учётом правки." }] } });
+    } catch (e) {
+      onUpdateProfile({ contentPlan: { ...plan, chat: [...newChat, { role: "assistant", content: "Ошибка: " + e.message }] } });
+    }
+    setChatLoading(false);
+  };
 
-      <div style={s.card}>
-        <span style={s.label}>Площадки</span>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
-          {Object.entries(PLATFORMS).map(([key, p]) => (
-            <label key={key} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 20, border: `1.5px solid ${selectedPlatforms.includes(key) ? COLORS.rose : COLORS.brd}`, background: selectedPlatforms.includes(key) ? COLORS.roseP : COLORS.cream, cursor: "pointer", fontSize: 11 }}>
-              <input type="checkbox" checked={selectedPlatforms.includes(key)} onChange={() => togglePlatform(key)} style={{ margin: 0 }} />
-              {p.icon} {p.name}
-            </label>
-          ))}
-        </div>
-        {loading && <div style={{ height: 3, background: COLORS.brd, borderRadius: 2, overflow: "hidden", margin: "12px 0" }}><div style={{ height: "100%", background: `linear-gradient(90deg,${COLORS.rose},#F472B6)`, animation: "lp 1.6s ease-in-out infinite" }} /></div>}
-        {error && (
-          <div style={{ marginTop: 10 }}>
-            <div style={{ fontSize: 11, color: "#DC2626", marginBottom: 6 }}>{error}</div>
-            {rawReply && <div style={{ fontSize: 10, color: COLORS.brownS, background: COLORS.cream, border: `1.5px solid ${COLORS.brd}`, borderRadius: 8, padding: 8, maxHeight: 120, overflowY: "auto", whiteSpace: "pre-wrap" }}>{rawReply}</div>}
+  return (
+    <div style={{ display: "flex", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
+      <div style={{ flex: "0.85 1 280px", minWidth: 280 }}>
+        <div style={{ ...s.card, display: "flex", flexDirection: "column", height: 420 }}>
+          <span style={s.label}>Чат с Мией — правки плана</span>
+          <div ref={chatRef} style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6, overflowY: "auto", margin: "8px 0" }}>
+            {!plan && <div style={{ fontSize: 11, color: COLORS.brownS, fontStyle: "italic" }}>Сначала сгенерируй план справа — потом здесь можно будет попросить пересобрать его с учётом правки.</div>}
+            {plan && chat.length === 0 && <div style={{ fontSize: 11, color: COLORS.brownS, fontStyle: "italic" }}>Например: «слишком много про страх, добавь про деньги»</div>}
+            {chat.map((m, i) => <div key={i} style={s.chatMsg(m.role)}><MsgText text={m.content} /></div>)}
+            {chatLoading && <div style={{ ...s.chatMsg("assistant"), opacity: .6, fontStyle: "italic" }}>Пересобираю план...</div>}
           </div>
-        )}
-        <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginTop: 12 }}>
-          <button style={{ ...s.btnRose, opacity: (selectedPlatforms.length && !loading) ? 1 : .4 }} disabled={!selectedPlatforms.length || loading} onClick={() => plan ? setShowConfirmRegen(true) : generate()}>
-            {loading ? "Генерирую..." : plan ? "🔄 Перегенерировать план" : "✦ Сгенерировать план"}
-          </button>
-          <button style={s.btnOutline} onClick={() => setShowUpload(true)}>📄 Загрузить свой план</button>
+          <div style={{ display: "flex", gap: 6 }}>
+            <textarea value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendRevision(chatInput); } }} placeholder="Правка к плану..." rows={1} style={{ ...s.field, flex: 1, minHeight: 38, maxHeight: 90 }} disabled={!plan || chatLoading} />
+            <button onClick={() => sendRevision(chatInput)} disabled={!plan || chatLoading || !chatInput.trim()} style={{ ...s.btnRose, width: 36, height: 36, padding: 0, flexShrink: 0, opacity: (!plan || chatLoading || !chatInput.trim()) ? .4 : 1 }}>→</button>
+          </div>
         </div>
       </div>
 
-      {showUpload && <UploadPlanModal onClose={() => setShowUpload(false)} onParsed={handleUploaded} />}
-
-      {plan && (
-        <div style={{ marginTop: 14 }}>
-          <div style={{ fontSize: 10, color: COLORS.brownS, marginBottom: 8 }}>{plan.source === "upload" ? "Загружен" : "Сгенерирован"} {new Date(plan.generatedAt).toLocaleDateString("ru")} · {plan.items.length} тем{plan.source !== "upload" ? ` · тип профиля: ${profile.profileType === "interview" ? "по интервью" : "по документу воркшопа"}` : ""}</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {plan.items.map((item, i) => (
-              <PlanRow
-                key={i} item={item}
-                onChange={(changes) => updatePlanItem(i, changes)}
-                onWritePost={() => onWritePost(item)}
-                onDelete={() => deletePlanItem(i)}
-                onRegenerate={() => regenPlanItem(i)}
-                regenerating={regenIndex === i}
-              />
+      <div style={{ flex: "1.15 1 340px", minWidth: 280 }}>
+        <div style={s.card}>
+          <span style={s.label}>Площадки</span>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+            {Object.entries(PLATFORMS).map(([key, p]) => (
+              <label key={key} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 20, border: `1.5px solid ${selectedPlatforms.includes(key) ? COLORS.rose : COLORS.brd}`, background: selectedPlatforms.includes(key) ? COLORS.roseP : COLORS.cream, cursor: "pointer", fontSize: 11 }}>
+                <input type="checkbox" checked={selectedPlatforms.includes(key)} onChange={() => togglePlatform(key)} style={{ margin: 0 }} />
+                {p.icon} {p.name}
+              </label>
             ))}
           </div>
-        </div>
-      )}
-
-      {showConfirmRegen && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(35,18,26,.5)", zIndex: 400, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: "#fff", borderRadius: 12, padding: 20, maxWidth: 300, width: "90%", textAlign: "center" }}>
-            <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 6 }}>Перегенерировать план?</div>
-            <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 16 }}>Текущий план на 30 дней будет заменён новым.</div>
-            <div style={{ display: "flex", gap: 7, justifyContent: "center" }}>
-              <button style={{ ...s.btnRose, background: "#DC2626" }} onClick={() => { setShowConfirmRegen(false); generate(); }}>Перегенерировать</button>
-              <button style={s.btnOutline} onClick={() => setShowConfirmRegen(false)}>Отмена</button>
+          {loading && <div style={{ height: 3, background: COLORS.brd, borderRadius: 2, overflow: "hidden", margin: "12px 0" }}><div style={{ height: "100%", background: `linear-gradient(90deg,${COLORS.rose},#F472B6)`, animation: "lp 1.6s ease-in-out infinite" }} /></div>}
+          {error && (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 11, color: "#DC2626", marginBottom: 6 }}>{error}</div>
+              {rawReply && <div style={{ fontSize: 10, color: COLORS.brownS, background: COLORS.cream, border: `1.5px solid ${COLORS.brd}`, borderRadius: 8, padding: 8, maxHeight: 120, overflowY: "auto", whiteSpace: "pre-wrap" }}>{rawReply}</div>}
             </div>
+          )}
+          <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginTop: 12 }}>
+            <button style={{ ...s.btnRose, opacity: (selectedPlatforms.length && !loading) ? 1 : .4 }} disabled={!selectedPlatforms.length || loading} onClick={() => plan ? setShowConfirmRegen(true) : generate()}>
+              {loading ? "Генерирую..." : plan ? "🔄 Перегенерировать план" : "✦ Сгенерировать план"}
+            </button>
+            <button style={s.btnOutline} onClick={() => setShowUpload(true)}>📄 Загрузить свой план</button>
+          </div>
+        </div>
+
+        {showUpload && <UploadPlanModal onClose={() => setShowUpload(false)} onParsed={handleUploaded} />}
+
+        {plan && (
+          <div style={{ marginTop: 14 }}>
+            <div style={{ fontSize: 10, color: COLORS.brownS, marginBottom: 8 }}>{plan.source === "upload" ? "Загружен" : "Сгенерирован"} {new Date(plan.generatedAt).toLocaleDateString("ru")} · {plan.items.length} тем{plan.source !== "upload" ? ` · тип профиля: ${profile.profileType === "interview" ? "по интервью" : "по документу воркшопа"}` : ""}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {plan.items.map((item, i) => (
+                <PlanRow
+                  key={i} item={item}
+                  onChange={(changes) => updatePlanItem(i, changes)}
+                  onWritePost={() => onWritePost(item)}
+                  onDelete={() => deletePlanItem(i)}
+                  onRegenerate={() => regenPlanItem(i)}
+                  regenerating={regenIndex === i}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {showConfirmRegen && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(35,18,26,.5)", zIndex: 400, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ background: "#fff", borderRadius: 12, padding: 20, maxWidth: 300, width: "90%", textAlign: "center" }}>
+              <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 6 }}>Перегенерировать план?</div>
+              <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 16 }}>Текущий план на 30 дней будет заменён новым.</div>
+              <div style={{ display: "flex", gap: 7, justifyContent: "center" }}>
+                <button style={{ ...s.btnRose, background: "#DC2626" }} onClick={() => { setShowConfirmRegen(false); generate(); }}>Перегенерировать</button>
+                <button style={s.btnOutline} onClick={() => setShowConfirmRegen(false)}>Отмена</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MiaIdeaTab({ profile, onUpdateProfile, onWritePost }) {
+  const [chat, setChat] = useState([]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [formatLoading, setFormatLoading] = useState(false);
+  const [draftTopic, setDraftTopic] = useState(null);
+  const chatRef = useRef(null);
+
+  useEffect(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight; }, [chat]);
+
+  const existingTopics = (profile.contentPlan?.items || []).map(it => it.topic).filter(Boolean).join(", ");
+
+  const send = async (msg) => {
+    if (!msg.trim()) return;
+    setInput("");
+    setLoading(true);
+    const packet = createContextPacket({ agent: "mia", profile: buildMiaProfileFields(profile), materials: profile.materials });
+    const coreInstructions = miaIdeaCore({ existingTopics });
+    const { system } = renderContextPacket(packet, { coreInstructions, stage: "idea", requiresMemory: true });
+    const newChat = [...chat, { role: "user", content: msg }];
+    setChat(newChat);
+    try {
+      const messages = newChat.slice(-6).map(m => ({ role: m.role, content: m.content }));
+      const reply = await callAPI(messages, system, 1200, false, "mia");
+      setChat([...newChat, { role: "assistant", content: reply }]);
+    } catch (e) {
+      setChat([...newChat, { role: "assistant", content: "Ошибка: " + e.message }]);
+    }
+    setLoading(false);
+  };
+
+  const formatIdea = async () => {
+    if (!input.trim()) return;
+    setFormatLoading(true);
+    try {
+      const raw = await callAPI([{ role: "user", content: input }], miaFormatIdeaCore(), 300, false, "mia");
+      const parsed = parseJSON(raw);
+      setDraftTopic({
+        topic: parsed.topic || input,
+        anchor: parsed["опора"] || parsed.opora || parsed.anchor || "",
+        stage: Math.min(5, Math.max(1, Number(parsed.stage) || 2)),
+        platform: Object.keys(PLATFORMS)[0],
+      });
+      setInput("");
+    } catch (e) {
+      alert("Ошибка: " + (e.message || "не удалось оформить идею"));
+    }
+    setFormatLoading(false);
+  };
+
+  const addToPlan = () => {
+    if (!draftTopic) return;
+    const plan = profile.contentPlan;
+    const newItem = { day: (plan?.items?.length || 0) + 1, platform: draftTopic.platform, topic: draftTopic.topic, stage: draftTopic.stage, anchor: draftTopic.anchor };
+    if (plan) {
+      onUpdateProfile({ contentPlan: { ...plan, items: [...plan.items, newItem] } });
+    } else {
+      onUpdateProfile({ contentPlan: { platforms: [draftTopic.platform], items: [newItem], chat: [], generatedAt: new Date().toISOString() } });
+    }
+    setDraftTopic(null);
+  };
+
+  return (
+    <div>
+      <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 10 }}>Придумай тему с нуля, изложи мысль хаотично, или сразу напиши готовую — Мия оформит.</div>
+      <div ref={chatRef} style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 260, overflowY: "auto", marginBottom: 8 }}>
+        {chat.map((m, i) => <div key={i} style={s.chatMsg(m.role)}><MsgText text={m.content} /></div>)}
+        {loading && <div style={{ ...s.chatMsg("assistant"), opacity: .6, fontStyle: "italic" }}>Думаю...</div>}
+      </div>
+      <div style={{ display: "flex", gap: 6, alignItems: "flex-end", marginBottom: 8 }}>
+        <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }} placeholder="Сообщение Мие или готовая тема..." rows={1} style={{ ...s.field, flex: 1, minHeight: 38, maxHeight: 90 }} />
+        <button onClick={() => send(input)} disabled={loading} style={{ ...s.btnRose, width: 36, height: 36, padding: 0, flexShrink: 0, opacity: loading ? .4 : 1 }}>→</button>
+      </div>
+      <button onClick={formatIdea} disabled={formatLoading || !input.trim()} style={{ ...s.btnOutline, ...s.btnSm, opacity: (formatLoading || !input.trim()) ? .5 : 1 }}>{formatLoading ? "Оформляю..." : "✎ Написать свою идею"}</button>
+
+      {draftTopic && (
+        <div style={{ marginTop: 14 }}>
+          <span style={s.label}>Тема</span>
+          <div style={{ background: COLORS.white, border: `1.5px solid ${COLORS.brd}`, borderRadius: 9, padding: "9px 11px", display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+              <select value={draftTopic.platform} onChange={e => setDraftTopic(d => ({ ...d, platform: e.target.value }))} style={{ ...s.field, width: "auto", padding: "3px 7px", fontSize: 10 }}>
+                {Object.entries(PLATFORMS).map(([key, p]) => <option key={key} value={key}>{p.icon} {p.name}</option>)}
+              </select>
+              <select value={draftTopic.stage} onChange={e => setDraftTopic(d => ({ ...d, stage: Number(e.target.value) }))} style={{ ...s.field, width: "auto", padding: "3px 7px", fontSize: 10, color: COLORS.rose, fontWeight: 700 }}>
+                {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>Ступень {n}</option>)}
+              </select>
+              <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
+                <button onClick={addToPlan} style={{ ...s.btnOutline, ...s.btnSm }}>+ Добавить в план</button>
+                <button onClick={() => onWritePost(draftTopic)} style={{ ...s.btnOutline, ...s.btnSm }}>✍️ Написать пост</button>
+              </div>
+            </div>
+            <input value={draftTopic.topic} onChange={e => setDraftTopic(d => ({ ...d, topic: e.target.value }))} style={{ ...s.field, fontWeight: 600 }} />
+            {draftTopic.anchor && <div style={{ fontSize: 10, color: COLORS.brownS, fontStyle: "italic" }}>Опора: {draftTopic.anchor}</div>}
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function MiaScreen({ profile, onUpdateProfile, onWritePost }) {
+  const [subTab, setSubTab] = useState("plan");
+  const SUB_TABS = [["plan", "План"], ["news", "Новости"], ["idea", "Идея"], ["competitors", "Конкуренты"]];
+
+  return (
+    <div style={s.panel}>
+      <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 2 }}>Мия — маркетолог</div>
+      <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 14 }}>Знает вашу аудиторию, продукты и конкурентов для ниши «{profile.name}»</div>
+
+      <div style={{ display: "flex", border: `1.5px solid ${COLORS.brd}`, borderRadius: 9, overflow: "hidden", marginBottom: 16 }}>
+        {SUB_TABS.map(([key, label], i) => (
+          <button
+            key={key}
+            onClick={() => key !== "competitors" && setSubTab(key)}
+            disabled={key === "competitors"}
+            style={{ flex: 1, padding: "7px 4px", border: "none", borderRight: i < SUB_TABS.length - 1 ? `1px solid ${COLORS.brd}` : "none", background: subTab === key ? COLORS.rose : COLORS.cream, color: subTab === key ? "#fff" : key === "competitors" ? COLORS.brd : COLORS.brownS, fontSize: 10, fontWeight: 700, cursor: key === "competitors" ? "default" : "pointer", textAlign: "center" }}
+          >
+            {label}{key === "competitors" ? " · скоро" : ""}
+          </button>
+        ))}
+      </div>
+
+      {subTab === "plan" && <MiaPlanTab profile={profile} onUpdateProfile={onUpdateProfile} onWritePost={onWritePost} />}
+      {subTab === "news" && <div style={{ fontSize: 12, color: COLORS.brownS, textAlign: "center", padding: "30px 0" }}>Скоро — поиск актуальных инфоповодов в нише.</div>}
+      {subTab === "idea" && <MiaIdeaTab profile={profile} onUpdateProfile={onUpdateProfile} onWritePost={onWritePost} />}
+      {subTab === "competitors" && <div style={{ fontSize: 12, color: COLORS.brownS, textAlign: "center", padding: "30px 0" }}>Скоро — анализ конкурентов.</div>}
     </div>
   );
 }
