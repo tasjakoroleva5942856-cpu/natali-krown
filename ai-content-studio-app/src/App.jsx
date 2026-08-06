@@ -332,6 +332,7 @@ export default function App() {
   const [saveStatus, setSaveStatus] = useState("");
   const [cardId, setCardId] = useState(null);
   const [showNewCard, setShowNewCard] = useState(false);
+  const [quickStart, setQuickStart] = useState(null); // null | "leo" | "kira" | "asya" | "tim"
   const [showConfirm, setShowConfirm] = useState(false);
   const [apiKey, setApiKey] = useState("");
   const [hoveredCardId, setHoveredCardId] = useState(null);
@@ -433,6 +434,24 @@ export default function App() {
     setReels(prev => { const u = prev.filter(r => r.id !== id); saveReels(u); return u; });
     setCardId(prev => (prev === id ? null : prev));
   }, [saveReels]);
+
+  // Team screen "quick start" — creates a card that skips straight to the
+  // clicked agent. Кира needs a video format and Ася needs Карусель so
+  // CardModal's existing video/Карусель routing (see its lazy `step` init)
+  // lands on the right screen; Тим gets a non-video, non-carousel format so
+  // that same routing skips straight past Кира/Ася to CopyStep, matching
+  // how LeoStep.submit already routes a finished draft.
+  const handleQuickStart = useCallback((text) => {
+    const formatByAgent = { leo: "Reels", kira: "Reels", asya: "Карусель", tim: "Пост" };
+    const reel = {
+      ...makeReel({ platform: "ig", format: formatByAgent[quickStart] || "Reels", hunt: 0, topic: quickStart === "leo" ? text : "" }),
+      profileId: activeProfileId,
+    };
+    if (quickStart !== "leo") reel.reveal_text = text; // Кира/Ася/Тим начинают сразу с этого текста, без Лео
+    setReels(prev => { const u = [reel, ...prev]; saveReels(u); return u; });
+    setCardId(reel.id);
+    setQuickStart(null);
+  }, [quickStart, activeProfileId, saveReels]);
 
   const currentReel = reels.find(r => r.id === cardId);
   const deleteBoardCard = reels.find(r => r.id === deleteBoardCardId);
@@ -590,7 +609,8 @@ export default function App() {
       )}
 
       {/* TEAM */}
-      {tab === "team" && <TeamScreen setTab={setTab} />}
+      {tab === "team" && <TeamScreen setTab={setTab} onQuickStart={setQuickStart} />}
+      {quickStart && <QuickStartModal agent={quickStart} onClose={() => setQuickStart(null)} onCreate={handleQuickStart} />}
 
       {/* PROFILE */}
       {tab === "profile" && (
@@ -698,7 +718,7 @@ function AgentThought({ img, name, role, desc, soon, dim, bubbleMaxWidth = 340, 
   );
 }
 
-function TeamScreen({ setTab }) {
+function TeamScreen({ setTab, onQuickStart }) {
   const nextStep = [
     { img: "kira", name: "Кира", role: "сценарист", desc: "Превращает текст Льва в сценарий для видео: хук, план съёмки, о чём говорить." },
     { img: "asya", name: "Ася", role: "карусели", desc: "Раскладывает текст Льва по слайдам карусели для Instagram." },
@@ -712,13 +732,13 @@ function TeamScreen({ setTab }) {
     <div style={{ ...s.panel, display: "flex", flexDirection: "column", gap: 20 }}>
       <div style={{ display: "flex", flexWrap: "wrap", gap: "16px 24px" }}>
         <AgentThought img="mia" name="Мия" role="маркетолог" desc="Знает вашу аудиторию, продукты и конкурентов. Составляет план на месяц и объясняет, почему выбрала именно эти темы." bubbleMaxWidth={280} onClick={() => setTab("plan")} />
-        <AgentThought img="lev" name="Лев" role="копирайтер" desc="Берёт тему от Мии и пишет полноценный текст вашим голосом. Ещё не привязан к конкретной площадке — это следующий шаг." bubbleMaxWidth={260} soon />
+        <AgentThought img="lev" name="Лео" role="копирайтер" desc="Берёт тему от Мии и пишет полноценный текст вашим голосом. Ещё не привязан к конкретной площадке — это следующий шаг." bubbleMaxWidth={260} onClick={() => onQuickStart("leo")} />
       </div>
 
       <div>
         <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 10 }}>Дальше — по площадке</div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "16px 24px" }}>
-          {nextStep.map(a => <AgentThought key={a.img} {...a} bubbleMaxWidth={220} />)}
+          {nextStep.map(a => <AgentThought key={a.img} {...a} bubbleMaxWidth={220} onClick={() => onQuickStart(a.img)} />)}
         </div>
       </div>
 
@@ -727,6 +747,30 @@ function TeamScreen({ setTab }) {
         <div style={{ display: "flex", flexWrap: "wrap", gap: "16px 24px" }}>
           {comingSoon.map(a => <AgentThought key={a.img} {...a} bubbleMaxWidth={200} dim />)}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── QUICK START MODAL — direct entry into an agent from the Team screen,
+// bypassing the steps that would normally feed it a topic/text ──
+function QuickStartModal({ agent, onClose, onCreate }) {
+  const [value, setValue] = useState("");
+  const isLeo = agent === "leo";
+  const agentName = { leo: "Лео", kira: "Кире", asya: "Асе", tim: "Тиму" }[agent] || "";
+
+  return (
+    <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ ...s.modal, maxWidth: 440 }}>
+        <button onClick={onClose} style={{ position: "absolute", top: 12, right: 12, background: COLORS.cream, border: `1.5px solid ${COLORS.brd}`, borderRadius: 6, width: 28, height: 28, cursor: "pointer", fontSize: 12, color: COLORS.brownS, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+        <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 6 }}>{isLeo ? "Какая тема?" : "О чём текст?"}</div>
+        <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 12 }}>Быстрый старт сразу к {agentName} — минуя предыдущие шаги.</div>
+        {isLeo ? (
+          <input value={value} onChange={e => setValue(e.target.value)} placeholder="Тема ролика..." style={{ ...s.field, marginBottom: 12 }} />
+        ) : (
+          <textarea value={value} onChange={e => setValue(e.target.value)} placeholder="Вставь готовый текст или просто опиши мысль..." rows={6} style={{ ...s.field, minHeight: 120, marginBottom: 12 }} />
+        )}
+        <button onClick={() => value.trim() && onCreate(value.trim())} disabled={!value.trim()} style={{ ...s.btnRose, width: "100%", opacity: value.trim() ? 1 : .5 }}>Начать →</button>
       </div>
     </div>
   );
@@ -1917,7 +1961,18 @@ function NewCardModal({ profile, onClose, onCreate }) {
 
 // ── CARD MODAL ──
 function CardModal({ reel, profile, reels, onUpdate, onDelete }) {
-  const [step, setStep] = useState(0);
+  // Quick-started cards (Team screen → Кира/Ася/Тим) arrive with
+  // reveal_text already filled in and no Лео step to pass through — same
+  // routing rule LeoStep.submit uses (video/Карусель → Script/Carousel,
+  // else → Copy directly), just applied once at mount instead of on a
+  // button click. A plain Лео quick-start (topic only, reveal_text still
+  // empty) still starts at step 0 like any other new card.
+  const [step, setStep] = useState(() => {
+    if (reel.reveal_text !== undefined && reel.reveal_text) {
+      return (VIDEO_FORMATS.includes(reel.format) || reel.format === "Карусель") ? 1 : 2;
+    }
+    return 0;
+  });
   const [showConfirm, setShowConfirm] = useState(false);
   const p = PLATFORMS[reel.platform];
   const lead = reel.lead_magnet_idx != null ? profile.leads?.[reel.lead_magnet_idx] : null;
