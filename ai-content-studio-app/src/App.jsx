@@ -1379,24 +1379,35 @@ function MiaIdeaTab({ profile, onUpdateProfile, onWritePost }) {
     setLoading(false);
   };
 
-  const formatIdea = async () => {
-    if (!input.trim()) return;
+  const makeTopicFromMessage = async (text) => {
+    if (!text || !text.trim()) return false;
     setFormatLoading(true);
     try {
-      const raw = await callAPI([{ role: "user", content: input }], miaFormatIdeaCore(), 300, false, "mia");
+      const raw = await callAPI([{ role: "user", content: text }], miaFormatIdeaCore(), 300, false, "mia");
       const parsed = parseJSON(raw);
       setDraftTopic({
-        topic: parsed.topic || input,
+        topic: parsed.topic || text,
         anchor: parsed["опора"] || parsed.opora || parsed.anchor || "",
         stage: Math.min(5, Math.max(1, Number(parsed.stage) || 2)),
         platform: Object.keys(PLATFORMS)[0],
       });
-      setInput("");
+      setFormatLoading(false);
+      return true;
     } catch (e) {
-      alert("Ошибка: " + (e.message || "не удалось оформить идею"));
+      alert("Ошибка: " + (e.message || "не удалось оформить тему"));
+      setFormatLoading(false);
+      return false;
     }
-    setFormatLoading(false);
   };
+
+  const formatIdea = async () => {
+    if (!input.trim()) return;
+    if (await makeTopicFromMessage(input)) setInput("");
+  };
+
+  // Heuristic for "this message reads like a proposed topic, not just chatter"
+  // — used only to make the button more prominent, never to hide it.
+  const looksLikeTopic = (text) => /^\s*тема\s*:/i.test(text || "");
 
   const addToPlan = () => {
     if (!draftTopic) return;
@@ -1414,7 +1425,20 @@ function MiaIdeaTab({ profile, onUpdateProfile, onWritePost }) {
     <div>
       <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 10 }}>Придумай тему с нуля, изложи мысль хаотично, или сразу напиши готовую — Мия оформит.</div>
       <div ref={chatRef} style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 260, overflowY: "auto", marginBottom: 8 }}>
-        {chat.map((m, i) => <div key={i} style={s.chatMsg(m.role)}><MsgText text={m.content} /></div>)}
+        {chat.map((m, i) => (
+          <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "88%" }}>
+            <div style={{ ...s.chatMsg(m.role), maxWidth: "100%", marginLeft: 0 }}><MsgText text={m.content} /></div>
+            {m.role === "assistant" && (
+              <button
+                onClick={() => makeTopicFromMessage(m.content)}
+                disabled={formatLoading}
+                style={{ ...(i === chat.length - 1 && looksLikeTopic(m.content) ? s.btnRose : s.btnOutline), ...s.btnSm, marginTop: 3, opacity: formatLoading ? .5 : 1 }}
+              >
+                Сделать темой
+              </button>
+            )}
+          </div>
+        ))}
         {loading && <div style={{ ...s.chatMsg("assistant"), opacity: .6, fontStyle: "italic" }}>Думаю...</div>}
       </div>
       <div style={{ display: "flex", gap: 6, alignItems: "flex-end", marginBottom: 8 }}>
