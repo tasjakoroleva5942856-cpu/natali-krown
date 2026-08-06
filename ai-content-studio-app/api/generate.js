@@ -1,6 +1,6 @@
 import { redis, checkRateLimit, checkLifetimeLimit, getClientIp } from '../lib/kvHelpers.js';
 
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || '';
 const TRIAL_GENERATION_LIMIT = parseInt(process.env.TRIAL_GENERATION_LIMIT || '10', 10);
 const DAILY_GENERATION_LIMIT = parseInt(process.env.DAILY_GENERATION_LIMIT || '100', 10);
@@ -36,11 +36,11 @@ export default async function handler(req, res) {
     return res.status(429).json({ error: 'Слишком много запросов. Попробуйте через минуту.' });
   }
 
-  // A user's own Anthropic key is used only for the outbound request below —
+  // A user's own OpenRouter key is used only for the outbound request below —
   // never logged or persisted (not even in Redis) — and exempts them from
-  // the studio's trial/daily limits since they're paying Anthropic directly.
+  // the studio's trial/daily limits since they're paying OpenRouter directly.
   const userApiKey = req.headers['x-user-api-key'];
-  const hasOwnKey = typeof userApiKey === 'string' && /^sk-ant-[A-Za-z0-9_-]+$/.test(userApiKey);
+  const hasOwnKey = typeof userApiKey === 'string' && /^sk-or-[A-Za-z0-9_-]+$/.test(userApiKey);
 
   const authHeader = req.headers['authorization'] || '';
   const paidToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
@@ -141,35 +141,36 @@ export default async function handler(req, res) {
   });
 
   try {
-    const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+    // Routed through OpenRouter (OpenAI-compatible Chat Completions format)
+    // instead of calling Anthropic directly — same Claude model, easier
+    // billing. `system` is folded into `messages` as the first entry since
+    // OpenRouter has no separate top-level `system` field.
+    const openrouterRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': hasOwnKey ? userApiKey : ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
+        'Authorization': `Bearer ${hasOwnKey ? userApiKey : OPENROUTER_API_KEY}`,
+        'HTTP-Referer': 'https://natali-krown.vercel.app',
+        'X-Title': 'AI Content Studio',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-5',
+        model: 'anthropic/claude-sonnet-5',
         max_tokens: safeMaxTokens,
-        ...(safeSystem ? { system: safeSystem } : {}),
-        messages: safeMessages,
+        messages: safeSystem ? [{ role: 'system', content: safeSystem }, ...safeMessages] : safeMessages,
         // web_search is a paid tool billed per search call — only attach it
         // when the frontend explicitly opts in, never by default.
-        ...(enableWebSearch === true ? { tools: [{ type: 'web_search_20250305', name: 'web_search' }] } : {}),
+        ...(enableWebSearch === true ? { tools: [{ type: 'openrouter:web_search' }] } : {}),
       }),
     });
 
-    if (!anthropicRes.ok) {
-      const errText = await anthropicRes.text();
-      console.error('Anthropic API error', anthropicRes.status, errText);
+    if (!openrouterRes.ok) {
+      const errText = await openrouterRes.text();
+      console.error('OpenRouter API error', openrouterRes.status, errText);
       return res.status(502).json({ error: 'Ошибка генерации. Попробуйте ещё раз.' });
     }
 
-    const data = await anthropicRes.json();
-    const text = (data.content || [])
-      .filter((block) => block.type === 'text')
-      .map((block) => block.text)
-      .join('');
+    const data = await openrouterRes.json();
+    const text = data.choices?.[0]?.message?.content || '';
 
     return res.status(200).json({ text });
   } catch (err) {
