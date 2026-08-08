@@ -323,7 +323,7 @@ function makeReel({ platform, format, hunt = 0, topic = "" }) {
 
 // ── MAIN APP ──
 export default function App() {
-  const [tab, setTab] = useState("board");
+  const [tab, setTab] = useState("team");
   const [reels, setReels] = useState([]);
   const [profiles, setProfiles] = useState([]);
   const [activeProfileId, setActiveProfileId] = useState(null);
@@ -476,9 +476,9 @@ export default function App() {
           </div>
         </div>
         <div style={{ display: "flex", gap: 2 }}>
-          {["board", "plan", "team", "profile"].map((t, i) => (
+          {["team", "profile", "board"].map((t, i) => (
             <button key={t} onClick={() => setTab(t)} style={{ padding: "5px 12px", borderRadius: 7, fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", fontFamily: "inherit", background: tab === t ? COLORS.rose : "none", color: tab === t ? "#fff" : COLORS.brownS }}>
-              {{ board: "◫ Доска", plan: "🧑‍💼 Мия", team: "🤖 Команда", profile: "⚙ Профиль" }[t]}
+              {{ board: "◫ Доска", team: "🤖 Команда", profile: "⚙ Профиль" }[t]}
             </button>
           ))}
         </div>
@@ -515,12 +515,6 @@ export default function App() {
       {/* BOARD */}
       {tab === "board" && (
         <div style={s.panel}>
-          {((!profile.ca && !profile.ca_files?.length) || (!profile.prod && !profile.prod_files?.length) || (!profile.tov && !profile.tov_files?.length)) && (
-            <div style={{ background: COLORS.amberL, border: `1.5px solid #FCD34D`, borderRadius: 9, padding: "9px 12px", fontSize: 11, color: COLORS.amber, fontWeight: 500, display: "flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
-              ⚠ Заполни профиль — агенты будут работать точнее.
-              <span style={{ textDecoration: "underline", cursor: "pointer" }} onClick={() => setTab("profile")}>Перейти →</span>
-            </div>
-          )}
           {(dueToday.length > 0 || overdue.length > 0) && (
             <div style={{ background: COLORS.amberL, border: `1.5px solid #FCD34D`, borderRadius: 9, padding: "9px 12px", fontSize: 11, color: COLORS.amber, fontWeight: 500, marginBottom: 12 }}>
               {dueToday.length > 0 && (
@@ -609,7 +603,7 @@ export default function App() {
       )}
 
       {/* TEAM */}
-      {tab === "team" && <TeamScreen setTab={setTab} onQuickStart={setQuickStart} />}
+      {tab === "team" && <TeamScreen profile={profile} setTab={setTab} onQuickStart={setQuickStart} />}
       {quickStart && <QuickStartModal agent={quickStart} onClose={() => setQuickStart(null)} onCreate={handleQuickStart} />}
 
       {/* PROFILE */}
@@ -719,7 +713,7 @@ function AgentThought({ img, name, role, desc, soon, dim, bubbleMaxWidth = 340, 
   );
 }
 
-function TeamScreen({ setTab, onQuickStart }) {
+function TeamScreen({ profile, setTab, onQuickStart }) {
   const nextStep = [
     { img: "kira", name: "Кира", role: "сценарист", desc: "Превращает текст Лео в сценарий для видео: хук, план съёмки, о чём говорить." },
     { img: "asya", name: "Ася", role: "карусели", desc: "Раскладывает текст Лео по слайдам карусели для Instagram." },
@@ -729,8 +723,18 @@ function TeamScreen({ setTab, onQuickStart }) {
     { img: "operator", name: "Оператор", role: "съёмка" },
     { img: "montazher", name: "Монтажёр", role: "монтаж" },
   ];
+  const profileIncomplete = (!profile.ca && !profile.ca_files?.length) || (!profile.prod && !profile.prod_files?.length) || (!profile.tov && !profile.tov_files?.length);
   return (
     <div style={{ ...s.panel, display: "flex", flexDirection: "column", gap: 20 }}>
+      {profileIncomplete && (
+        <div style={{ background: COLORS.amberL, border: `1.5px solid #FCD34D`, borderRadius: 9, padding: "9px 12px", fontSize: 11, color: COLORS.amber, fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}>
+          ⚠ Заполни профиль — агенты будут работать точнее.
+          <span style={{ textDecoration: "underline", cursor: "pointer" }} onClick={() => setTab("profile")}>Перейти →</span>
+        </div>
+      )}
+      {profileIncomplete && (
+        <div style={{ fontSize: 12, color: COLORS.brownS, lineHeight: 1.5 }}>Ваша команда для создания контента. Начните с Мии — она соберёт план тем на основе вашей ниши.</div>
+      )}
       <div style={{ display: "flex", flexWrap: "wrap", gap: "16px 24px" }}>
         <AgentThought img="mia" name="Мия" role="маркетолог" desc="Знает вашу аудиторию, продукты и конкурентов. Составляет план на месяц и объясняет, почему выбрала именно эти темы." bubbleMaxWidth={280} onClick={() => setTab("plan")} />
         <AgentThought img="lev" name="Лео" role="копирайтер" desc="Берёт тему от Мии и пишет полноценный текст вашим голосом. Ещё не привязан к конкретной площадке — это следующий шаг." bubbleMaxWidth={260} onClick={() => onQuickStart("leo")} />
