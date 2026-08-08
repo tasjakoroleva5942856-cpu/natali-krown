@@ -316,7 +316,7 @@ function makeReel({ platform, format, hunt = 0, topic = "" }) {
     copy: {}, notes: "", reactions: "", publish_date: null,
     strategy_card: null,
     script_strategy_card: null,
-    plan_anchor: null, plan_day: null, content_goal: "", fixed_decisions: [],
+    plan_anchor: null, plan_day: null,
     reveal_text: "", reveal_chat: [], selected_platforms: [],
   };
 }
@@ -643,6 +643,7 @@ export default function App() {
             <CardModal
               reel={currentReel} profile={profile} reels={profileReels}
               onUpdate={(changes) => updateReel(cardId, changes)}
+              onUpdateProfile={(changes) => updateActiveProfile(changes)}
               onDelete={() => deleteReel(cardId)}
             />
           </div>
@@ -720,8 +721,8 @@ function AgentThought({ img, name, role, desc, soon, dim, bubbleMaxWidth = 340, 
 
 function TeamScreen({ setTab, onQuickStart }) {
   const nextStep = [
-    { img: "kira", name: "Кира", role: "сценарист", desc: "Превращает текст Льва в сценарий для видео: хук, план съёмки, о чём говорить." },
-    { img: "asya", name: "Ася", role: "карусели", desc: "Раскладывает текст Льва по слайдам карусели для Instagram." },
+    { img: "kira", name: "Кира", role: "сценарист", desc: "Превращает текст Лео в сценарий для видео: хук, план съёмки, о чём говорить." },
+    { img: "asya", name: "Ася", role: "карусели", desc: "Раскладывает текст Лео по слайдам карусели для Instagram." },
     { img: "tim", name: "Тим", role: "тексты", desc: "Пишет финальный текст под каждую площадку: подпись к видео, пост в Telegram и так далее." },
   ];
   const comingSoon = [
@@ -1130,6 +1131,20 @@ function buildMiaProfileFields(profile) {
   };
 }
 
+// Мия's plan prompt needs to know whether it can expect direct quotes from a
+// real workshop document, or just a handful of interview-brief sentences —
+// profileType alone doesn't say that ("Заполню сам" profiles range from two
+// typed sentences to a fully uploaded document), so weigh actual content
+// depth too instead of promising the model citations that may not exist.
+function computeProfileTypeLabel(profile) {
+  if (profile.profileType === "interview") return "ИНТЕРВЬЮ";
+  const textLen = ["ca", "prod", "tov"].reduce((sum, f) => sum + (profile[f]?.length || 0), 0);
+  const filesLen = ["ca_files", "prod_files", "tov_files"].reduce(
+    (sum, f) => sum + (profile[f] || []).reduce((s, doc) => s + (doc.text?.length || 0), 0), 0
+  );
+  return (textLen + filesLen) >= 500 ? "ДОКУМЕНТ_ВОРКШОПА" : "ИНТЕРВЬЮ";
+}
+
 // Normalizes raw model rows (or an uploaded plan) into the plan's item
 // shape, snapping any platform the model invented back onto one of the
 // actually-selected platforms. Shared by generation and chat-driven
@@ -1188,7 +1203,7 @@ function MiaPlanTab({ profile, onUpdateProfile, onWritePost }) {
     setLoading(true);
     setError("");
     setRawReply("");
-    const typeLabel = profile.profileType === "interview" ? "ИНТЕРВЬЮ" : "ДОКУМЕНТ_ВОРКШОПА";
+    const typeLabel = computeProfileTypeLabel(profile);
     const platformNames = selectedPlatforms.map(k => PLATFORMS[k].name).join(", ");
     // Materials tagged for the Идеолог (use.idea) are reused here as a
     // temporary stand-in for "materials Мия should see" — the ТЗ named
@@ -1227,7 +1242,7 @@ function MiaPlanTab({ profile, onUpdateProfile, onWritePost }) {
   const regenPlanItem = async (i) => {
     setRegenIndex(i);
     const item = plan.items[i];
-    const typeLabel = profile.profileType === "interview" ? "ИНТЕРВЬЮ" : "ДОКУМЕНТ_ВОРКШОПА";
+    const typeLabel = computeProfileTypeLabel(profile);
     const platformName = PLATFORMS[item.platform]?.name || item.platform;
     const existingTopics = plan.items.filter((_, idx) => idx !== i).map(it => it.topic).filter(Boolean);
     const packet = createContextPacket({ agent: "mia", profile: buildMiaProfileFields(profile), materials: profile.materials });
@@ -1248,7 +1263,7 @@ function MiaPlanTab({ profile, onUpdateProfile, onWritePost }) {
     if (!msg.trim() || !plan) return;
     setChatInput("");
     setChatLoading(true);
-    const typeLabel = profile.profileType === "interview" ? "ИНТЕРВЬЮ" : "ДОКУМЕНТ_ВОРКШОПА";
+    const typeLabel = computeProfileTypeLabel(profile);
     const platforms = plan.platforms?.length ? plan.platforms : selectedPlatforms;
     const platformNames = platforms.map(k => PLATFORMS[k]?.name).filter(Boolean).join(", ");
     const packet = createContextPacket({ agent: "mia", profile: buildMiaProfileFields(profile), materials: profile.materials });
@@ -1315,7 +1330,7 @@ function MiaPlanTab({ profile, onUpdateProfile, onWritePost }) {
 
         {plan && (
           <div style={{ marginTop: 14 }}>
-            <div style={{ fontSize: 10, color: COLORS.brownS, marginBottom: 8 }}>{plan.source === "upload" ? "Загружен" : "Сгенерирован"} {new Date(plan.generatedAt).toLocaleDateString("ru")} · {plan.items.length} тем{plan.source !== "upload" ? ` · тип профиля: ${profile.profileType === "interview" ? "по интервью" : "по документу воркшопа"}` : ""}</div>
+            <div style={{ fontSize: 10, color: COLORS.brownS, marginBottom: 8 }}>{plan.source === "upload" ? "Загружен" : "Сгенерирован"} {new Date(plan.generatedAt).toLocaleDateString("ru")} · {plan.items.length} тем{plan.source !== "upload" ? ` · тип профиля: ${computeProfileTypeLabel(profile) === "ИНТЕРВЬЮ" ? "по интервью" : "по документу воркшопа"}` : ""}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {plan.items.map((item, i) => (
                 <PlanRow
@@ -1996,17 +2011,17 @@ function NewCardModal({ profile, onClose, onCreate }) {
         )}
 
         <div style={{ marginBottom: 14 }}>
-          <span style={s.label}>Тема (необязательно)</span>
-          <textarea style={{ ...s.field, minHeight: 50 }} rows={2} value={topic} onChange={e => setTopic(e.target.value)} placeholder="Оставь пустым — Идеолог поможет придумать..." />
+          <span style={s.label}>Тема</span>
+          <textarea style={{ ...s.field, minHeight: 50 }} rows={2} value={topic} onChange={e => setTopic(e.target.value)} placeholder="О чём ролик — Лео раскроет тему в текст на следующем шаге..." />
         </div>
-        <button style={{ ...s.btnRose, width: "100%" }} onClick={create}>Создать и открыть →</button>
+        <button style={{ ...s.btnRose, width: "100%", opacity: topic.trim() ? 1 : .5 }} disabled={!topic.trim()} onClick={create}>Создать и открыть →</button>
       </div>
     </div>
   );
 }
 
 // ── CARD MODAL ──
-function CardModal({ reel, profile, reels, onUpdate, onDelete }) {
+function CardModal({ reel, profile, reels, onUpdate, onUpdateProfile, onDelete }) {
   // Quick-started cards (Team screen → Кира/Ася/Тим) arrive with
   // reveal_text already filled in and no Лео step to pass through — same
   // routing rule LeoStep.submit uses (video/Карусель → Script/Carousel,
@@ -2045,7 +2060,7 @@ function CardModal({ reel, profile, reels, onUpdate, onDelete }) {
         )}
         {step === 2 && <CopyStep reel={reel} profile={profile} onUpdate={onUpdate} onAdvance={() => setStep(3)} standalone />}
         {step === 3 && (
-          <NotesStep reel={reel} onUpdate={onUpdate} onDeleteRequest={() => setShowConfirm(true)} standalone onBack={() => setStep(2)} />
+          <NotesStep reel={reel} profile={profile} onUpdate={onUpdate} onUpdateProfile={onUpdateProfile} onDeleteRequest={() => setShowConfirm(true)} standalone onBack={() => setStep(2)} />
         )}
 
         {showConfirm && (
@@ -2104,7 +2119,7 @@ function CardModal({ reel, profile, reels, onUpdate, onDelete }) {
       )}
       {step === 2 && <CopyStep reel={reel} profile={profile} onUpdate={onUpdate} />}
       {step === 3 && (
-        <NotesStep reel={reel} onUpdate={onUpdate} onDeleteRequest={() => setShowConfirm(true)} />
+        <NotesStep reel={reel} profile={profile} onUpdate={onUpdate} onUpdateProfile={onUpdateProfile} onDeleteRequest={() => setShowConfirm(true)} />
       )}
 
       {showConfirm && (
@@ -2477,7 +2492,10 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance, standalone }) {
 
   useEffect(() => {
     if (autoGenRef.current) return;
-    if ((reel.reveal_text || reel.agreed_angle) && !(reel.script_versions || []).length && reel.topic?.trim() && (!isVideo || reel.shoot_format)) {
+    // Quick-started cards (Кира via "Команда") arrive with reveal_text but a
+    // deliberately blank topic — reveal_text alone is enough of an idea to
+    // generate from, so don't gate on topic when it's present.
+    if ((reel.reveal_text || reel.agreed_angle) && !(reel.script_versions || []).length && (reel.topic?.trim() || reel.reveal_text) && (!isVideo || reel.shoot_format)) {
       autoGenRef.current = true;
       generateFromIdea();
     }
@@ -2577,7 +2595,13 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance, standalone }) {
     return scriptGenerated;
   };
 
-  const generateFromIdea = async () => { await send(`Сгенерируй сценарий на тему: ${reel.topic}`); };
+  const generateFromIdea = async () => {
+    // reel.topic can be blank on a quick-started card — the actual idea is
+    // reveal_text, already carried into the system prompt as "Согласованный
+    // угол", so the user message just needs to ask for a script at all.
+    const msg = reel.topic?.trim() ? `Сгенерируй сценарий на тему: ${reel.topic}` : "Сгенерируй сценарий по тексту выше.";
+    await send(msg);
+  };
 
   const saveScriptEdit = () => {
     if (reel.selected_script < 0 || scriptDraft === reel.script_versions?.[reel.selected_script]) return;
@@ -2643,7 +2667,7 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance, standalone }) {
                 </div>
               </div>
             )}
-            <button onClick={generateFromIdea} disabled={loading || !reel.topic?.trim() || (isVideo && !reel.shoot_format)} style={{ ...s.btnRose, width: "100%", marginTop: 8, opacity: (loading || !reel.topic?.trim() || (isVideo && !reel.shoot_format)) ? .5 : 1 }}>
+            <button onClick={generateFromIdea} disabled={loading || (!reel.topic?.trim() && !reel.reveal_text) || (isVideo && !reel.shoot_format)} style={{ ...s.btnRose, width: "100%", marginTop: 8, opacity: (loading || (!reel.topic?.trim() && !reel.reveal_text) || (isVideo && !reel.shoot_format)) ? .5 : 1 }}>
               {loading ? "Генерирую..." : "✦ Сгенерировать сценарий"}
             </button>
           </div>
@@ -2791,7 +2815,7 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance, standalone }) {
                   </div>
                 </div>
               )}
-              <button onClick={generateFromIdea} disabled={loading || !reel.topic?.trim() || (isVideo && !reel.shoot_format)} style={{ ...s.btnRose, width: "100%", marginTop: 8, opacity: (loading || !reel.topic?.trim() || (isVideo && !reel.shoot_format)) ? .5 : 1 }}>
+              <button onClick={generateFromIdea} disabled={loading || (!reel.topic?.trim() && !reel.reveal_text) || (isVideo && !reel.shoot_format)} style={{ ...s.btnRose, width: "100%", marginTop: 8, opacity: (loading || (!reel.topic?.trim() && !reel.reveal_text) || (isVideo && !reel.shoot_format)) ? .5 : 1 }}>
                 {loading ? "Генерирую..." : "✦ Сгенерировать сценарий"}
               </button>
             </div>
@@ -2881,7 +2905,10 @@ function CarouselStep({ reel, profile, onUpdate, onAdvance, standalone }) {
   // нужен доп. вопрос про формат съёмки, поэтому условие проще, чем в ScriptStep.
   useEffect(() => {
     if (autoGenRef.current) return;
-    if ((reel.reveal_text || reel.agreed_angle) && !(reel.script_versions || []).length && reel.topic?.trim()) {
+    // Quick-started cards (Ася via "Команда") arrive with reveal_text but a
+    // deliberately blank topic — reveal_text alone is enough of an idea to
+    // generate from, so don't gate on topic when it's present.
+    if ((reel.reveal_text || reel.agreed_angle) && !(reel.script_versions || []).length && (reel.topic?.trim() || reel.reveal_text)) {
       autoGenRef.current = true;
       generateFromIdea();
     }
@@ -2966,7 +2993,13 @@ function CarouselStep({ reel, profile, onUpdate, onAdvance, standalone }) {
     setLoading(false);
   };
 
-  const generateFromIdea = async () => { await send(`Сгенерируй карусель на тему: ${reel.topic}`); };
+  const generateFromIdea = async () => {
+    // reel.topic can be blank on a quick-started card — the actual idea is
+    // reveal_text, already carried into the system prompt as "Согласованный
+    // угол", so the user message just needs to ask for a carousel at all.
+    const msg = reel.topic?.trim() ? `Сгенерируй карусель на тему: ${reel.topic}` : "Сгенерируй карусель по тексту выше.";
+    await send(msg);
+  };
 
   const saveSlidesEdit = () => {
     if (reel.selected_script < 0 || slidesDraft === reel.script_versions?.[reel.selected_script]) return;
@@ -3013,7 +3046,7 @@ function CarouselStep({ reel, profile, onUpdate, onAdvance, standalone }) {
             )}
             <span style={s.label}>Идея (согласована на прошлом шаге — можно поправить)</span>
             <textarea style={{ ...s.field, minHeight: 60 }} rows={3} value={reel.topic || ""} onChange={e => onUpdate({ topic: e.target.value })} placeholder="Тема карусели..." />
-            <button onClick={generateFromIdea} disabled={loading || !reel.topic?.trim()} style={{ ...s.btnRose, width: "100%", marginTop: 8, opacity: (loading || !reel.topic?.trim()) ? .5 : 1 }}>
+            <button onClick={generateFromIdea} disabled={loading || (!reel.topic?.trim() && !reel.reveal_text)} style={{ ...s.btnRose, width: "100%", marginTop: 8, opacity: (loading || (!reel.topic?.trim() && !reel.reveal_text)) ? .5 : 1 }}>
               {loading ? "Генерирую..." : "✦ Сгенерировать карусель"}
             </button>
           </div>
@@ -3132,7 +3165,7 @@ function CarouselStep({ reel, profile, onUpdate, onAdvance, standalone }) {
               )}
               <span style={s.label}>Идея (согласована на прошлом шаге — можно поправить)</span>
               <textarea style={{ ...s.field, minHeight: 60 }} rows={3} value={reel.topic || ""} onChange={e => onUpdate({ topic: e.target.value })} placeholder="Тема карусели..." />
-              <button onClick={generateFromIdea} disabled={loading || !reel.topic?.trim()} style={{ ...s.btnRose, width: "100%", marginTop: 8, opacity: (loading || !reel.topic?.trim()) ? .5 : 1 }}>
+              <button onClick={generateFromIdea} disabled={loading || (!reel.topic?.trim() && !reel.reveal_text)} style={{ ...s.btnRose, width: "100%", marginTop: 8, opacity: (loading || (!reel.topic?.trim() && !reel.reveal_text)) ? .5 : 1 }}>
                 {loading ? "Генерирую..." : "✦ Сгенерировать карусель"}
               </button>
             </div>
@@ -3434,11 +3467,24 @@ function CopyStep({ reel, profile, onUpdate, onAdvance, standalone }) {
 }
 
 // ── NOTES STEP ──
-function NotesStep({ reel, onUpdate, onDeleteRequest, standalone, onBack }) {
+function NotesStep({ reel, profile, onUpdate, onUpdateProfile, onDeleteRequest, standalone, onBack }) {
   // Old cards keep getting the status bar from CardModal's own shared
   // chrome — only render it here when this screen has to stand on its own
   // (isNewCard), per the ТЗ's "перенеси статус-бар на экран «Заметки»".
   const statusIdx = STATUSES.findIndex(st => st.key === reel.status);
+  const [memorySaved, setMemorySaved] = useState(false);
+
+  // Turns "Реакции аудитории" from a write-only field into something the
+  // "идут в следующий цикл" caption below actually means: learnedMemory is
+  // already read by every agent's TOV/memory block (contextBuilder.js) — it
+  // just never had anything writing to it before.
+  const saveReactionsToMemory = () => {
+    if (!reel.reactions?.trim() || !onUpdateProfile) return;
+    const entry = { rule: `По теме «${reel.topic || "без темы"}»: ${reel.reactions.trim()}` };
+    onUpdateProfile({ learnedMemory: [...(profile?.learnedMemory || []), entry] });
+    setMemorySaved(true);
+  };
+
   return (
     <div>
       {standalone && (
@@ -3471,8 +3517,13 @@ function NotesStep({ reel, onUpdate, onDeleteRequest, standalone, onBack }) {
       </div>
       <div style={{ background: COLORS.blueL, border: `1.5px solid #BFDBFE`, borderRadius: 9, padding: "10px 11px" }}>
         <div style={{ fontWeight: 700, fontSize: 11, color: COLORS.blue, marginBottom: 5 }}>💬 Реакции аудитории</div>
-        <div style={{ fontSize: 10, color: COLORS.blue, marginBottom: 5 }}>Комментарии, вопросы — идут в следующий цикл</div>
-        <textarea style={{ ...s.field, minHeight: 50, background: "#fff" }} rows={2} value={reel.reactions || ""} onChange={e => onUpdate({ reactions: e.target.value })} placeholder="Что писали в комментариях?..." />
+        <div style={{ fontSize: 10, color: COLORS.blue, marginBottom: 5 }}>Комментарии, вопросы — сохрани кнопкой ниже, и агенты будут учитывать это в следующих генерациях для этой ниши</div>
+        <textarea style={{ ...s.field, minHeight: 50, background: "#fff" }} rows={2} value={reel.reactions || ""} onChange={e => { onUpdate({ reactions: e.target.value }); setMemorySaved(false); }} placeholder="Что писали в комментариях?..." />
+        {onUpdateProfile && (
+          <button onClick={saveReactionsToMemory} disabled={!reel.reactions?.trim() || memorySaved} style={{ ...s.btnOutline, ...s.btnSm, marginTop: 7, opacity: (!reel.reactions?.trim() || memorySaved) ? .5 : 1 }}>
+            {memorySaved ? "✓ Сохранено — учтётся в следующих генерациях" : "🧠 Сохранить как вывод на будущее"}
+          </button>
+        )}
       </div>
       <div style={{ height: 1, background: COLORS.brd, margin: "12px 0" }} />
       <button onClick={onDeleteRequest} style={{ ...s.btnOutline, fontSize: 11, color: "#DC2626", borderColor: "#FECACA" }}>Удалить ролик</button>
