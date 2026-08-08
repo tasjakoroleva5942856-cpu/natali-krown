@@ -1285,7 +1285,7 @@ function MiaPlanTab({ profile, onUpdateProfile, onWritePost }) {
   return (
     <div style={{ display: "flex", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
       <div style={{ flex: "0.85 1 280px", minWidth: 280 }}>
-        <div style={{ ...s.card, display: "flex", flexDirection: "column", height: 560 }}>
+        <div style={{ ...s.card, display: "flex", flexDirection: "column", minHeight: "60vh" }}>
           <span style={s.label}>Чат с Мией — правки плана</span>
           <div ref={chatRef} style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6, overflowY: "auto", margin: "8px 0" }}>
             {!plan && <div style={{ fontSize: 11, color: COLORS.brownS, fontStyle: "italic" }}>Сначала сгенерируй план справа — потом здесь можно будет попросить пересобрать его с учётом правки.</div>}
@@ -2422,7 +2422,7 @@ function LeoStep({ reel, profile, onUpdate, onAdvance }) {
 
       <div style={{ display: "flex", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
         <div style={{ flex: "0.85 1 280px", minWidth: 280 }}>
-          <div style={{ ...s.card, display: "flex", flexDirection: "column", height: 560 }}>
+          <div style={{ ...s.card, display: "flex", flexDirection: "column", minHeight: "60vh" }}>
             <div style={{ background: COLORS.roseP, border: `1.5px solid ${COLORS.brd}`, borderRadius: 9, padding: "9px 11px", marginBottom: 8, fontSize: 11, color: COLORS.brown, lineHeight: 1.5, flexShrink: 0 }}>
               <div style={{ fontWeight: 700, marginBottom: 3, color: COLORS.rose }}>От Мии</div>
               {reel.topic && <div><strong>Тема:</strong> {reel.topic}</div>}
@@ -2456,7 +2456,14 @@ function LeoStep({ reel, profile, onUpdate, onAdvance }) {
           </div>
         </div>
 
-        <div style={{ ...s.card, marginTop: 14 }}>
+        {/* Deliberately separated from the text editor above — this is the
+            next, distinct step (choosing where the text goes), not part of
+            editing the text itself. A viewport-relative gap (not a fixed
+            px number) keeps it below the fold on real screens instead of
+            crowding the editor, so the user scrolls to it once they're
+            done editing rather than seeing everything squeezed together. */}
+        <div style={{ height: 1, background: COLORS.brd, marginTop: "50vh" }} />
+        <div style={{ ...s.card, marginTop: 16 }}>
           <span style={s.label}>Куда отправить</span>
           <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 6 }}>
             {Object.entries(PLATFORMS).map(([key, p]) => (
@@ -2778,7 +2785,7 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance, standalone }) {
 
       <div style={{ display: "flex", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
         <div style={{ flex: "0.85 1 280px", minWidth: 280 }}>
-          <div style={{ ...s.card, display: "flex", flexDirection: "column", height: 560 }}>
+          <div style={{ ...s.card, display: "flex", flexDirection: "column", minHeight: "60vh" }}>
             {reel.reveal_text && (
               <div style={{ background: COLORS.roseP, border: `1.5px solid ${COLORS.brd}`, borderRadius: 9, padding: "9px 11px", marginBottom: 8, fontSize: 11, color: COLORS.brown, lineHeight: 1.5, flexShrink: 0 }}>
                 <div style={{ fontWeight: 700, marginBottom: 3, color: COLORS.rose }}>От Лео</div>
@@ -3142,7 +3149,7 @@ function CarouselStep({ reel, profile, onUpdate, onAdvance, standalone }) {
 
       <div style={{ display: "flex", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
         <div style={{ flex: "0.85 1 280px", minWidth: 280 }}>
-          <div style={{ ...s.card, display: "flex", flexDirection: "column", height: 560 }}>
+          <div style={{ ...s.card, display: "flex", flexDirection: "column", minHeight: "60vh" }}>
             {reel.reveal_text && (
               <div style={{ background: COLORS.roseP, border: `1.5px solid ${COLORS.brd}`, borderRadius: 9, padding: "9px 11px", marginBottom: 8, fontSize: 11, color: COLORS.brown, lineHeight: 1.5, flexShrink: 0 }}>
                 <div style={{ fontWeight: 700, marginBottom: 3, color: COLORS.rose }}>От Лео</div>
