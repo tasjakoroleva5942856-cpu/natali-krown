@@ -81,6 +81,7 @@ async function fetchInstagram(handle) {
   ]);
   const lists = results.filter((r) => r.status === 'fulfilled').map((r) => extractList(r.value));
   if (!lists.length) throw results.find((r) => r.status === 'rejected').reason;
+  console.log('SCRAPE DEBUG raw post sample:', JSON.stringify(lists[0]?.[0] || {}, null, 2));
   return lists.flat().map(normalizeInstagram);
 }
 
