@@ -299,7 +299,7 @@ function DocumentChip({ fileName, fileType, fileSize, onRemove }) {
   );
 }
 
-const EMPTY_PROFILE_FIELDS = { ca: "", prod: "", tov: "", memory: "", ca_files: [], prod_files: [], tov_files: [], memory_files: [], leads: [], materials: [], platInstr: { ...DEFAULT_PLAT_INSTR }, huntStage: null, profileType: "manual", contentPlan: null, competitors: [], competitorsLastFetched: null, newsResults: [], newsInstruction: "" };
+const EMPTY_PROFILE_FIELDS = { ca: "", prod: "", tov: "", memory: "", ca_files: [], prod_files: [], tov_files: [], memory_files: [], leads: [], materials: [], platInstr: { ...DEFAULT_PLAT_INSTR }, huntStage: null, profileType: "manual", contentPlan: null, competitors: [], competitorsLastFetched: null, newsResults: [], newsInstruction: "", ideaChat: [], ideaDraftTopic: null, competitorsWarnings: [], competitorsTopics: [] };
 function makeProfile(data) {
   return { id: "p-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: "Новая ниша", ...EMPTY_PROFILE_FIELDS, ...data, platInstr: { ...DEFAULT_PLAT_INSTR, ...(data.platInstr || {}) } };
 }
@@ -1349,11 +1349,14 @@ function MiaPlanTab({ profile, onUpdateProfile, onWritePost }) {
 }
 
 function MiaIdeaTab({ profile, onUpdateProfile, onWritePost }) {
-  const [chat, setChat] = useState([]);
+  // Persisted on the profile (not just local state) — otherwise switching
+  // tabs unmounts MiaIdeaTab and both the chat and any in-progress draft
+  // topic are gone, same issue MiaNewsTab had with newsResults.
+  const [chat, setChat] = useState(profile.ideaChat || []);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [formatLoading, setFormatLoading] = useState(false);
-  const [draftTopic, setDraftTopic] = useState(null);
+  const [draftTopic, setDraftTopic] = useState(profile.ideaDraftTopic || null);
   const chatRef = useRef(null);
 
   useEffect(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight; }, [chat]);
@@ -1369,33 +1372,57 @@ function MiaIdeaTab({ profile, onUpdateProfile, onWritePost }) {
     const { system } = renderContextPacket(packet, { coreInstructions, stage: "idea", requiresMemory: true });
     const newChat = [...chat, { role: "user", content: msg }];
     setChat(newChat);
+    onUpdateProfile({ ideaChat: newChat });
     try {
       const messages = newChat.slice(-6).map(m => ({ role: m.role, content: m.content }));
       const reply = await callAPI(messages, system, 1200, false, "mia");
-      setChat([...newChat, { role: "assistant", content: reply }]);
+      const updated = [...newChat, { role: "assistant", content: reply }];
+      setChat(updated);
+      onUpdateProfile({ ideaChat: updated });
     } catch (e) {
-      setChat([...newChat, { role: "assistant", content: "Ошибка: " + e.message }]);
+      const updated = [...newChat, { role: "assistant", content: "Ошибка: " + e.message }];
+      setChat(updated);
+      onUpdateProfile({ ideaChat: updated });
     }
     setLoading(false);
   };
 
-  const formatIdea = async () => {
-    if (!input.trim()) return;
+  const makeTopicFromMessage = async (text) => {
+    if (!text || !text.trim()) return false;
     setFormatLoading(true);
     try {
-      const raw = await callAPI([{ role: "user", content: input }], miaFormatIdeaCore(), 300, false, "mia");
+      const raw = await callAPI([{ role: "user", content: text }], miaFormatIdeaCore(), 300, false, "mia");
       const parsed = parseJSON(raw);
-      setDraftTopic({
-        topic: parsed.topic || input,
+      const topic = {
+        topic: parsed.topic || text,
         anchor: parsed["опора"] || parsed.opora || parsed.anchor || "",
         stage: Math.min(5, Math.max(1, Number(parsed.stage) || 2)),
         platform: Object.keys(PLATFORMS)[0],
-      });
-      setInput("");
+      };
+      setDraftTopic(topic);
+      onUpdateProfile({ ideaDraftTopic: topic });
+      setFormatLoading(false);
+      return true;
     } catch (e) {
-      alert("Ошибка: " + (e.message || "не удалось оформить идею"));
+      alert("Ошибка: " + (e.message || "не удалось оформить тему"));
+      setFormatLoading(false);
+      return false;
     }
-    setFormatLoading(false);
+  };
+
+  const formatIdea = async () => {
+    if (!input.trim()) return;
+    if (await makeTopicFromMessage(input)) setInput("");
+  };
+
+  // Heuristic for "this message reads like a proposed topic, not just chatter"
+  // — used only to make the button more prominent, never to hide it.
+  const looksLikeTopic = (text) => /^\s*тема\s*:/i.test(text || "");
+
+  const updateDraftTopic = (changes) => {
+    const next = { ...draftTopic, ...changes };
+    setDraftTopic(next);
+    onUpdateProfile({ ideaDraftTopic: next });
   };
 
   const addToPlan = () => {
@@ -1403,9 +1430,9 @@ function MiaIdeaTab({ profile, onUpdateProfile, onWritePost }) {
     const plan = profile.contentPlan;
     const newItem = { day: (plan?.items?.length || 0) + 1, platform: draftTopic.platform, topic: draftTopic.topic, stage: draftTopic.stage, anchor: draftTopic.anchor };
     if (plan) {
-      onUpdateProfile({ contentPlan: { ...plan, items: [...plan.items, newItem] } });
+      onUpdateProfile({ contentPlan: { ...plan, items: [...plan.items, newItem] }, ideaDraftTopic: null });
     } else {
-      onUpdateProfile({ contentPlan: { platforms: [draftTopic.platform], items: [newItem], chat: [], generatedAt: new Date().toISOString() } });
+      onUpdateProfile({ contentPlan: { platforms: [draftTopic.platform], items: [newItem], chat: [], generatedAt: new Date().toISOString() }, ideaDraftTopic: null });
     }
     setDraftTopic(null);
   };
@@ -1414,7 +1441,20 @@ function MiaIdeaTab({ profile, onUpdateProfile, onWritePost }) {
     <div>
       <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 10 }}>Придумай тему с нуля, изложи мысль хаотично, или сразу напиши готовую — Мия оформит.</div>
       <div ref={chatRef} style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 260, overflowY: "auto", marginBottom: 8 }}>
-        {chat.map((m, i) => <div key={i} style={s.chatMsg(m.role)}><MsgText text={m.content} /></div>)}
+        {chat.map((m, i) => (
+          <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "88%" }}>
+            <div style={{ ...s.chatMsg(m.role), maxWidth: "100%", marginLeft: 0 }}><MsgText text={m.content} /></div>
+            {m.role === "assistant" && (
+              <button
+                onClick={() => makeTopicFromMessage(m.content)}
+                disabled={formatLoading}
+                style={{ ...(i === chat.length - 1 && looksLikeTopic(m.content) ? s.btnRose : s.btnOutline), ...s.btnSm, marginTop: 3, opacity: formatLoading ? .5 : 1 }}
+              >
+                Сделать темой
+              </button>
+            )}
+          </div>
+        ))}
         {loading && <div style={{ ...s.chatMsg("assistant"), opacity: .6, fontStyle: "italic" }}>Думаю...</div>}
       </div>
       <div style={{ display: "flex", gap: 6, alignItems: "flex-end", marginBottom: 8 }}>
@@ -1428,10 +1468,10 @@ function MiaIdeaTab({ profile, onUpdateProfile, onWritePost }) {
           <span style={s.label}>Тема</span>
           <div style={{ background: COLORS.white, border: `1.5px solid ${COLORS.brd}`, borderRadius: 9, padding: "9px 11px", display: "flex", flexDirection: "column", gap: 6 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-              <select value={draftTopic.platform} onChange={e => setDraftTopic(d => ({ ...d, platform: e.target.value }))} style={{ ...s.field, width: "auto", padding: "3px 7px", fontSize: 10 }}>
+              <select value={draftTopic.platform} onChange={e => updateDraftTopic({ platform: e.target.value })} style={{ ...s.field, width: "auto", padding: "3px 7px", fontSize: 10 }}>
                 {Object.entries(PLATFORMS).map(([key, p]) => <option key={key} value={key}>{p.icon} {p.name}</option>)}
               </select>
-              <select value={draftTopic.stage} onChange={e => setDraftTopic(d => ({ ...d, stage: Number(e.target.value) }))} style={{ ...s.field, width: "auto", padding: "3px 7px", fontSize: 10, color: COLORS.rose, fontWeight: 700 }}>
+              <select value={draftTopic.stage} onChange={e => updateDraftTopic({ stage: Number(e.target.value) })} style={{ ...s.field, width: "auto", padding: "3px 7px", fontSize: 10, color: COLORS.rose, fontWeight: 700 }}>
                 {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>Ступень {n}</option>)}
               </select>
               <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
@@ -1439,7 +1479,7 @@ function MiaIdeaTab({ profile, onUpdateProfile, onWritePost }) {
                 <button onClick={() => onWritePost(draftTopic)} style={{ ...s.btnOutline, ...s.btnSm }}>✍️ Написать пост</button>
               </div>
             </div>
-            <input value={draftTopic.topic} onChange={e => setDraftTopic(d => ({ ...d, topic: e.target.value }))} style={{ ...s.field, fontWeight: 600 }} />
+            <input value={draftTopic.topic} onChange={e => updateDraftTopic({ topic: e.target.value })} style={{ ...s.field, fontWeight: 600 }} />
             {draftTopic.anchor && <div style={{ fontSize: 10, color: COLORS.brownS, fontStyle: "italic" }}>Опора: {draftTopic.anchor}</div>}
           </div>
         </div>
@@ -1534,8 +1574,11 @@ function MiaCompetitorsTab({ profile, onUpdateProfile }) {
   const [newHandle, setNewHandle] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [warnings, setWarnings] = useState([]);
-  const [topics, setTopics] = useState([]);
+  // Persisted on the profile (not just local state) — otherwise switching
+  // tabs unmounts MiaCompetitorsTab and the analysis results are gone,
+  // same issue MiaNewsTab had with newsResults.
+  const [warnings, setWarnings] = useState(profile.competitorsWarnings || []);
+  const [topics, setTopics] = useState(profile.competitorsTopics || []);
 
   const addCompetitor = () => {
     if (!newHandle.trim()) return;
@@ -1554,6 +1597,7 @@ function MiaCompetitorsTab({ profile, onUpdateProfile }) {
     setError("");
     setWarnings([]);
     setTopics([]);
+    onUpdateProfile({ competitorsWarnings: [], competitorsTopics: [] });
     const fetched = [];
     const newWarnings = [];
     for (const c of competitors) {
@@ -1564,7 +1608,7 @@ function MiaCompetitorsTab({ profile, onUpdateProfile }) {
         newWarnings.push(`@${c.handle} (${COMPETITOR_PLATFORMS[c.platform]?.name}): ${e.message}`);
       }
     }
-    onUpdateProfile({ competitorsLastFetched: new Date().toISOString() });
+    onUpdateProfile({ competitorsLastFetched: new Date().toISOString(), competitorsWarnings: newWarnings });
     setWarnings(newWarnings);
     const withPosts = fetched.filter(c => c.posts.length);
     if (!withPosts.length) {
@@ -1583,7 +1627,9 @@ function MiaCompetitorsTab({ profile, onUpdateProfile }) {
       const raw = await callAPI([{ role: "user", content: `Заголовки/подписи последних постов конкурентов:\n\n${summary}\n\nНайди повторяющиеся темы/форматы/крючки и предложи 3-5 тем для контента пользователя.` }], system, 1600, false, "competitor_analysis");
       if (!raw) throw new Error("Агент вернул пустой ответ.");
       const parsed = raw.split(/(?=Вариант\s*\d+\s*:)/i).map(t => t.trim()).filter(Boolean);
-      setTopics(parsed.length ? parsed : [raw]);
+      const result = parsed.length ? parsed : [raw];
+      setTopics(result);
+      onUpdateProfile({ competitorsTopics: result });
     } catch (e) {
       setError(e.message || "Ошибка запроса");
     }
