@@ -30,17 +30,21 @@ function extractList(data) {
   return [];
 }
 
+// Only strings and numbers count as "found" — an object (like Instagram's
+// caption, which wraps the actual text as { text, user, pk, ... }) is
+// truthy too, so a plain existence check would stop here without ever
+// trying the nested candidate path that has the real value.
 function pick(obj, paths) {
   for (const path of paths) {
     const val = path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
-    if (val !== undefined && val !== null && val !== '') return val;
+    if ((typeof val === 'string' && val !== '') || typeof val === 'number') return val;
   }
   return null;
 }
 
 function normalizeInstagram(p) {
   return {
-    title_or_caption: pick(p, ['caption', 'caption.text', 'title', 'text']) || '',
+    title_or_caption: pick(p, ['caption.text', 'title', 'text']) || '',
     likes: Number(pick(p, ['like_count', 'likes', 'edge_media_preview_like.count'])) || 0,
     comments: Number(pick(p, ['comment_count', 'comments', 'edge_media_to_comment.count'])) || 0,
     views: Number(pick(p, ['view_count', 'video_view_count', 'play_count', 'views'])) || 0,
@@ -81,7 +85,6 @@ async function fetchInstagram(handle) {
   ]);
   const lists = results.filter((r) => r.status === 'fulfilled').map((r) => extractList(r.value));
   if (!lists.length) throw results.find((r) => r.status === 'rejected').reason;
-  console.log('SCRAPE DEBUG raw post sample:', JSON.stringify(lists[0]?.[0] || {}, null, 2));
   return lists.flat().map(normalizeInstagram);
 }
 
