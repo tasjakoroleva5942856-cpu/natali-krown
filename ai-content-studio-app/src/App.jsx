@@ -299,7 +299,7 @@ function DocumentChip({ fileName, fileType, fileSize, onRemove }) {
   );
 }
 
-const EMPTY_PROFILE_FIELDS = { ca: "", prod: "", tov: "", memory: "", ca_files: [], prod_files: [], tov_files: [], memory_files: [], leads: [], materials: [], platInstr: { ...DEFAULT_PLAT_INSTR }, huntStage: null, profileType: "manual", contentPlan: null, competitors: [], competitorsLastFetched: null, newsResults: [], newsInstruction: "", ideaChat: [], ideaDraftTopic: null, competitorsWarnings: [], competitorsTopics: [] };
+const EMPTY_PROFILE_FIELDS = { ca: "", prod: "", tov: "", memory: "", ca_files: [], prod_files: [], tov_files: [], memory_files: [], leads: [], materials: [], platInstr: { ...DEFAULT_PLAT_INSTR }, huntStage: null, profileType: "manual", contentPlan: null, competitors: [], competitorsLastFetched: null, newsResults: [], newsInstruction: "", ideaChat: [], ideaDraftTopic: null, competitorsWarnings: [], competitorsTopics: [], competitorsBreakdown: "" };
 function makeProfile(data) {
   return { id: "p-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: "Новая ниша", ...EMPTY_PROFILE_FIELDS, ...data, platInstr: { ...DEFAULT_PLAT_INSTR, ...(data.platInstr || {}) } };
 }
@@ -1625,6 +1625,10 @@ function MiaCompetitorsTab({ profile, onUpdateProfile }) {
   // same issue MiaNewsTab had with newsResults.
   const [warnings, setWarnings] = useState(profile.competitorsWarnings || []);
   const [topics, setTopics] = useState(profile.competitorsTopics || []);
+  // Шаг 1 промпта (разбор роликов с транскрипцией) — отдельно от тем шага 2:
+  // это анализ, не предложение темы, ему не место среди карточек с
+  // кнопкой "+ Сделать темой".
+  const [breakdown, setBreakdown] = useState(profile.competitorsBreakdown || "");
 
   const addCompetitor = () => {
     if (!newHandle.trim()) return;
@@ -1643,7 +1647,8 @@ function MiaCompetitorsTab({ profile, onUpdateProfile }) {
     setError("");
     setWarnings([]);
     setTopics([]);
-    onUpdateProfile({ competitorsWarnings: [], competitorsTopics: [] });
+    setBreakdown("");
+    onUpdateProfile({ competitorsWarnings: [], competitorsTopics: [], competitorsBreakdown: "" });
     const fetched = [];
     const newWarnings = [];
     for (const c of competitors) {
@@ -1664,18 +1669,24 @@ function MiaCompetitorsTab({ profile, onUpdateProfile }) {
     }
     const summary = withPosts.map(c =>
       `@${c.handle} (${COMPETITOR_PLATFORMS[c.platform]?.name}):\n` +
-      c.posts.map((p, i) => `${i + 1}. "${p.title_or_caption || "(без подписи)"}" (❤ ${p.likes} · 💬 ${p.comments} · 👁 ${p.views})`).join("\n")
+      c.posts.map((p, i) => `${i + 1}. "${p.title_or_caption || "(без подписи)"}" (❤ ${p.likes} · 💬 ${p.comments} · 👁 ${p.views})` + (p.transcript ? `\nТранскрипт: ${p.transcript}` : "")).join("\n")
     ).join("\n\n");
     const packet = createContextPacket({ agent: "competitor_analysis", profile: buildMiaProfileFields(profile), materials: profile.materials });
     const coreInstructions = competitorAnalysisCore();
     const { system } = renderContextPacket(packet, { coreInstructions, stage: "idea", requiresMemory: true });
     try {
-      const raw = await callAPI([{ role: "user", content: `Заголовки/подписи последних постов конкурентов:\n\n${summary}\n\nНайди повторяющиеся темы/форматы/крючки и предложи 3-5 тем для контента пользователя.` }], system, 1600, false, "competitor_analysis");
+      const raw = await callAPI([{ role: "user", content: `Посты конкурентов (с транскриптом у самых залетевших):\n\n${summary}\n\nСначала разбери ролики с транскрипцией по отдельности, потом найди повторяющиеся темы/форматы/крючки и предложи 3-5 тем для контента пользователя.` }], system, 2400, false, "competitor_analysis");
       if (!raw) throw new Error("Агент вернул пустой ответ.");
-      const parsed = raw.split(/(?=Вариант\s*\d+\s*:)/i).map(t => t.trim()).filter(Boolean);
-      const result = parsed.length ? parsed : [raw];
+      // Шаг 1 (разбор роликов) идёт перед первым "Вариант N:" — это анализ,
+      // не тема, отделяем его от карточек с "+ Сделать темой" ниже.
+      const firstVariantIdx = raw.search(/Вариант\s*\d+\s*:/i);
+      const breakdownText = firstVariantIdx > 0 ? raw.slice(0, firstVariantIdx).trim() : "";
+      const topicsRaw = firstVariantIdx >= 0 ? raw.slice(firstVariantIdx) : raw;
+      const parsed = topicsRaw.split(/(?=Вариант\s*\d+\s*:)/i).map(t => t.trim()).filter(Boolean);
+      const result = parsed.length ? parsed : (firstVariantIdx === -1 ? [raw] : []);
+      setBreakdown(breakdownText);
       setTopics(result);
-      onUpdateProfile({ competitorsTopics: result });
+      onUpdateProfile({ competitorsBreakdown: breakdownText, competitorsTopics: result });
     } catch (e) {
       setError(e.message || "Ошибка запроса");
     }
@@ -1696,7 +1707,8 @@ function MiaCompetitorsTab({ profile, onUpdateProfile }) {
 
   return (
     <div>
-      <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 10 }}>Добавь конкурентов, чтобы Мия нашла повторяющиеся темы и форматы в их контенте и предложила идеи под твой голос и продукт.</div>
+      <div style={{ fontSize: 11, color: COLORS.brownS, marginBottom: 4 }}>Добавь конкурентов, чтобы Мия нашла повторяющиеся темы и форматы в их контенте и предложила идеи под твой голос и продукт.</div>
+      <div style={{ fontSize: 10, color: COLORS.brownS, fontStyle: "italic", marginBottom: 10 }}>Залетевшесть считаем по лайкам, комментариям и просмотрам — сохранения и репосты сами площадки не показывают публично никому, кроме владельца аккаунта.</div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
         {competitors.map((c, i) => (
@@ -1731,6 +1743,15 @@ function MiaCompetitorsTab({ profile, onUpdateProfile }) {
         </div>
       )}
       {error && <div style={{ marginTop: 10, fontSize: 11, color: "#DC2626" }}>{error}</div>}
+
+      {breakdown && (
+        <div style={{ marginTop: 14 }}>
+          <span style={s.label}>Разбор самых залетевших роликов</span>
+          <div style={{ background: COLORS.white, border: `1.5px solid ${COLORS.brd}`, borderRadius: 9, padding: "10px 12px", fontSize: 12, lineHeight: 1.6 }}>
+            <MsgText text={breakdown} />
+          </div>
+        </div>
+      )}
 
       {topics.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 14 }}>

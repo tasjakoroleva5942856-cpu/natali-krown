@@ -102,6 +102,28 @@ async function fetchYoutube(handle) {
 
 const FETCHERS = { instagram: fetchInstagram, tiktok: fetchTiktok, youtube: fetchYoutube };
 
+const TRANSCRIPT_TOP_N = 5; // не транскрибируем все посты — только самые залетевшие
+
+const TRANSCRIPT_PATH = {
+  instagram: (url) => `/v2/instagram/media/transcript?url=${encodeURIComponent(url)}`,
+  tiktok: (url) => `/v1/tiktok/video/transcript?url=${encodeURIComponent(url)}`,
+  youtube: (url) => `/v1/youtube/video/transcript?url=${encodeURIComponent(url)}`,
+};
+
+async function fetchTranscript(platform, url) {
+  if (!url) return null;
+  try {
+    const data = await scGet(TRANSCRIPT_PATH[platform](url));
+    // Формат ответа по каждой площадке тоже не проверен вживую — попробуй
+    // разумные варианты и, если после мёржа окажется, что транскрипт не
+    // приходит при рабочем URL, посмотри реальный ответ тем же способом,
+    // что и с подписями (временный debug-лог, попроси прислать).
+    return pick(data, ['transcript', 'text']) || null;
+  } catch {
+    return null; // отсутствие транскрипта — не ошибка всего запроса, а норма (нет речи/фото-пост/видео длиннее 2 мин у IG)
+  }
+}
+
 export default async function handler(req, res) {
   if (ALLOWED_ORIGIN) res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -132,6 +154,15 @@ export default async function handler(req, res) {
 
   try {
     const posts = (await FETCHERS[platform](cleanHandle)).slice(0, POSTS_PER_COMPETITOR);
+
+    const topPosts = [...posts]
+      .sort((a, b) => (b.likes + b.comments + b.views) - (a.likes + a.comments + a.views))
+      .slice(0, TRANSCRIPT_TOP_N);
+
+    await Promise.all(topPosts.map(async (post) => {
+      post.transcript = await fetchTranscript(platform, post.url);
+    }));
+
     return res.status(200).json({ posts });
   } catch (err) {
     const status = err.status;
