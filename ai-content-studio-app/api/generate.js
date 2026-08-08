@@ -157,6 +157,12 @@ export default async function handler(req, res) {
         model: 'anthropic/claude-sonnet-5',
         max_tokens: safeMaxTokens,
         messages: safeSystem ? [{ role: 'system', content: safeSystem }, ...safeMessages] : safeMessages,
+        // Claude Sonnet 5 on OpenRouter has reasoning on by default — none of
+        // the studio's tasks (copywriting, structured JSON) need it, and it
+        // was silently eating into small max_tokens budgets (Тим's 900-1800)
+        // until nothing was left for the actual answer, leaving
+        // message.content empty and parseJSON() failing intermittently.
+        reasoning: { enabled: false },
         // web_search is a paid tool billed per search call — only attach it
         // when the frontend explicitly opts in, never by default.
         ...(enableWebSearch === true ? { tools: [{ type: 'openrouter:web_search' }] } : {}),
