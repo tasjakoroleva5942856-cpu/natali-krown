@@ -515,7 +515,7 @@ export default function App() {
       {/* BOARD */}
       {tab === "board" && (
         <div style={s.panel}>
-          {(!profile.ca || !profile.prod || !profile.tov) && (
+          {((!profile.ca && !profile.ca_files?.length) || (!profile.prod && !profile.prod_files?.length) || (!profile.tov && !profile.tov_files?.length)) && (
             <div style={{ background: COLORS.amberL, border: `1.5px solid #FCD34D`, borderRadius: 9, padding: "9px 12px", fontSize: 11, color: COLORS.amber, fontWeight: 500, display: "flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
               ⚠ Заполни профиль — агенты будут работать точнее.
               <span style={{ textDecoration: "underline", cursor: "pointer" }} onClick={() => setTab("profile")}>Перейти →</span>
@@ -1285,7 +1285,7 @@ function MiaPlanTab({ profile, onUpdateProfile, onWritePost }) {
   return (
     <div style={{ display: "flex", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
       <div style={{ flex: "0.85 1 280px", minWidth: 280 }}>
-        <div style={{ ...s.card, display: "flex", flexDirection: "column", height: 420 }}>
+        <div style={{ ...s.card, display: "flex", flexDirection: "column", height: 560 }}>
           <span style={s.label}>Чат с Мией — правки плана</span>
           <div ref={chatRef} style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6, overflowY: "auto", margin: "8px 0" }}>
             {!plan && <div style={{ fontSize: 11, color: COLORS.brownS, fontStyle: "italic" }}>Сначала сгенерируй план справа — потом здесь можно будет попросить пересобрать его с учётом правки.</div>}
@@ -1511,12 +1511,17 @@ function MiaNewsTab({ profile, onUpdateProfile, onWritePost }) {
   // Persisted on the profile (not just local state) — otherwise switching
   // tabs unmounts MiaNewsTab and the results are gone, forcing a re-search.
   const [topics, setTopics] = useState(profile.newsResults || []);
+  // Which topics the user already added — local only (resets on remount),
+  // just enough to give feedback right after the click without pretending
+  // to track it across tab switches.
+  const [addedIdx, setAddedIdx] = useState(new Set());
 
   const search = async () => {
     setLoading(true);
     setError("");
     setRawReply("");
     setTopics([]);
+    setAddedIdx(new Set());
     onUpdateProfile({ newsResults: [], newsInstruction: instruction });
     const packet = createContextPacket({ agent: "trend_researcher", profile: buildMiaProfileFields(profile), materials: profile.materials });
     const coreInstructions = trendResearcherCore({ userInstruction: instruction });
@@ -1536,7 +1541,7 @@ function MiaNewsTab({ profile, onUpdateProfile, onWritePost }) {
     setLoading(false);
   };
 
-  const makeTopic = (text) => {
+  const makeTopic = (text, idx) => {
     const topic = text.replace(/^Вариант\s*\d+\s*:\s*/i, "").trim();
     const plan = profile.contentPlan;
     const platform = plan?.platforms?.[0] || Object.keys(PLATFORMS)[0];
@@ -1546,6 +1551,7 @@ function MiaNewsTab({ profile, onUpdateProfile, onWritePost }) {
     } else {
       onUpdateProfile({ contentPlan: { platforms: [platform], items: [newItem], chat: [], generatedAt: new Date().toISOString() } });
     }
+    setAddedIdx(prev => new Set(prev).add(idx));
   };
 
   return (
@@ -1567,7 +1573,11 @@ function MiaNewsTab({ profile, onUpdateProfile, onWritePost }) {
           {topics.map((t, i) => (
             <div key={i} style={{ background: COLORS.white, border: `1.5px solid ${COLORS.brd}`, borderRadius: 9, padding: "9px 11px", display: "flex", flexDirection: "column", gap: 6 }}>
               <div style={{ fontSize: 12, lineHeight: 1.5 }}><MsgText text={t} /></div>
-              <button onClick={() => makeTopic(t)} style={{ ...s.btnOutline, ...s.btnSm, alignSelf: "flex-start" }}>+ Сделать темой</button>
+              {addedIdx.has(i) ? (
+                <span style={{ ...s.btnSm, alignSelf: "flex-start", display: "inline-flex", alignItems: "center", gap: 4, color: COLORS.green, fontSize: 11, fontWeight: 600 }}>✓ В твоём плане</span>
+              ) : (
+                <button onClick={() => makeTopic(t, i)} style={{ ...s.btnOutline, ...s.btnSm, alignSelf: "flex-start" }}>+ Сделать темой</button>
+              )}
             </div>
           ))}
         </div>
@@ -2412,7 +2422,7 @@ function LeoStep({ reel, profile, onUpdate, onAdvance }) {
 
       <div style={{ display: "flex", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
         <div style={{ flex: "0.85 1 280px", minWidth: 280 }}>
-          <div style={{ ...s.card, display: "flex", flexDirection: "column", height: 420 }}>
+          <div style={{ ...s.card, display: "flex", flexDirection: "column", height: 560 }}>
             <div style={{ background: COLORS.roseP, border: `1.5px solid ${COLORS.brd}`, borderRadius: 9, padding: "9px 11px", marginBottom: 8, fontSize: 11, color: COLORS.brown, lineHeight: 1.5, flexShrink: 0 }}>
               <div style={{ fontWeight: 700, marginBottom: 3, color: COLORS.rose }}>От Мии</div>
               {reel.topic && <div><strong>Тема:</strong> {reel.topic}</div>}
@@ -2732,6 +2742,7 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance, standalone }) {
                 <span style={{ fontSize: 12, color: COLORS.brown, lineHeight: 1.4, flex: 1 }}>{h}</span>
               </div>
             ))}
+            <button onClick={() => send("3 варианта хука")} disabled={loading} style={{ ...s.btnOutline, ...s.btnSm, marginTop: 4, opacity: loading ? .5 : 1 }}>🔄 Другие варианты</button>
           </div>
         )}
         <div style={{ height: 1, background: COLORS.brd, margin: "14px 0 10px" }} />
@@ -2767,7 +2778,7 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance, standalone }) {
 
       <div style={{ display: "flex", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
         <div style={{ flex: "0.85 1 280px", minWidth: 280 }}>
-          <div style={{ ...s.card, display: "flex", flexDirection: "column", height: 420 }}>
+          <div style={{ ...s.card, display: "flex", flexDirection: "column", height: 560 }}>
             {reel.reveal_text && (
               <div style={{ background: COLORS.roseP, border: `1.5px solid ${COLORS.brd}`, borderRadius: 9, padding: "9px 11px", marginBottom: 8, fontSize: 11, color: COLORS.brown, lineHeight: 1.5, flexShrink: 0 }}>
                 <div style={{ fontWeight: 700, marginBottom: 3, color: COLORS.rose }}>От Лео</div>
@@ -2865,6 +2876,7 @@ function ScriptStep({ reel, profile, onUpdate, onAdvance, standalone }) {
                   <span style={{ fontSize: 12, color: COLORS.brown, lineHeight: 1.4, flex: 1 }}>{h}</span>
                 </div>
               ))}
+              <button onClick={() => send("3 варианта хука")} disabled={loading} style={{ ...s.btnOutline, ...s.btnSm, marginTop: 4, opacity: loading ? .5 : 1 }}>🔄 Другие варианты</button>
             </div>
           )}
           {hooksError && (
@@ -3094,6 +3106,7 @@ function CarouselStep({ reel, profile, onUpdate, onAdvance, standalone }) {
                 <span style={{ fontSize: 12, color: COLORS.brown, lineHeight: 1.4, flex: 1 }}>{h}</span>
               </div>
             ))}
+            <button onClick={() => send("3 варианта обложки")} disabled={loading} style={{ ...s.btnOutline, ...s.btnSm, marginTop: 4, opacity: loading ? .5 : 1 }}>🔄 Другие варианты</button>
           </div>
         )}
         <div style={{ height: 1, background: COLORS.brd, margin: "14px 0 10px" }} />
@@ -3129,7 +3142,7 @@ function CarouselStep({ reel, profile, onUpdate, onAdvance, standalone }) {
 
       <div style={{ display: "flex", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
         <div style={{ flex: "0.85 1 280px", minWidth: 280 }}>
-          <div style={{ ...s.card, display: "flex", flexDirection: "column", height: 420 }}>
+          <div style={{ ...s.card, display: "flex", flexDirection: "column", height: 560 }}>
             {reel.reveal_text && (
               <div style={{ background: COLORS.roseP, border: `1.5px solid ${COLORS.brd}`, borderRadius: 9, padding: "9px 11px", marginBottom: 8, fontSize: 11, color: COLORS.brown, lineHeight: 1.5, flexShrink: 0 }}>
                 <div style={{ fontWeight: 700, marginBottom: 3, color: COLORS.rose }}>От Лео</div>
@@ -3205,6 +3218,7 @@ function CarouselStep({ reel, profile, onUpdate, onAdvance, standalone }) {
                   <span style={{ fontSize: 12, color: COLORS.brown, lineHeight: 1.4, flex: 1 }}>{h}</span>
                 </div>
               ))}
+              <button onClick={() => send("3 варианта обложки")} disabled={loading} style={{ ...s.btnOutline, ...s.btnSm, marginTop: 4, opacity: loading ? .5 : 1 }}>🔄 Другие варианты</button>
             </div>
           )}
           {coversError && (
