@@ -1596,6 +1596,23 @@ const COMPETITOR_PLATFORMS = {
   youtube: { icon: "▶️", name: "YouTube" },
 };
 
+// Accepts either a bare handle or a full profile URL (Instagram/TikTok/
+// YouTube) and returns just the handle — ScrapeCreators expects a handle,
+// not a URL.
+function parseCompetitorHandle(input) {
+  let v = (input || "").trim();
+  if (!v) return "";
+  if (/^https?:\/\//i.test(v)) {
+    try {
+      const url = new URL(v);
+      let path = url.pathname.replace(/^\/+|\/+$/g, "");
+      path = path.replace(/^(channel|c|user)\//i, ""); // youtube-специфичные префиксы
+      v = path.split("/")[0] || v;
+    } catch { /* не распарсилось как URL — используем как есть, дальше просто уберём @ */ }
+  }
+  return v.replace(/^@/, "");
+}
+
 function MiaCompetitorsTab({ profile, onUpdateProfile }) {
   // Old profiles predate this feature — read defensively.
   const competitors = profile.competitors || [];
@@ -1611,7 +1628,7 @@ function MiaCompetitorsTab({ profile, onUpdateProfile }) {
 
   const addCompetitor = () => {
     if (!newHandle.trim()) return;
-    onUpdateProfile({ competitors: [...competitors, { platform: newPlatform, handle: newHandle.trim().replace(/^@/, "") }] });
+    onUpdateProfile({ competitors: [...competitors, { platform: newPlatform, handle: parseCompetitorHandle(newHandle) }] });
     setNewHandle("");
   };
 
